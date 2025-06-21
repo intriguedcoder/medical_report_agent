@@ -1,8 +1,8 @@
 import os
 import time
 import uuid
+import re
 from utils.sarvam_client import SarvamClient
-
 
 class VoiceAgent:
     def __init__(self):
@@ -39,6 +39,10 @@ class VoiceAgent:
             print(f"🔍 Analysis data type: {type(analysis_data)}")
             print(f"🔍 Analysis data success: {analysis_data.get('success') if isinstance(analysis_data, dict) else 'Not a dict'}")
             
+            # Debug: Print the full analysis data structure
+            if isinstance(analysis_data, dict):
+                print(f"🔍 Analysis data keys: {list(analysis_data.keys())}")
+            
             # Use Flask app root path if available, otherwise use project path
             try:
                 from flask import current_app
@@ -61,7 +65,7 @@ class VoiceAgent:
             if os.name != 'nt':  # Not Windows
                 os.chmod(static_audio_dir, 0o755)
             
-            # Format speech text based on analysis data
+            # Format speech text based on analysis data - CONCISE VERSION FOR AUDIO
             if not analysis_data.get('success'):
                 speech_text = self._get_error_speech(language)
                 print(f"🔍 Using error speech text")
@@ -146,6 +150,117 @@ class VoiceAgent:
             traceback.print_exc()
             return self.generate_fallback_audio(speech_text if 'speech_text' in locals() else "Audio generation failed", language)
     
+    def _format_for_speech(self, analysis_data, language):
+        """Format analysis data for speech synthesis - CONCISE VERSION FOR SARVAM 500 CHAR LIMIT"""
+        try:
+            print(f"🔍 === _format_for_speech DEBUG START ===")
+            
+            if not analysis_data.get('success'):
+                print(f"🔍 Analysis not successful, returning error speech")
+                return self._get_error_speech(language)
+            
+            print(f"🔍 Analysis data type: {type(analysis_data)}")
+            print(f"🔍 Analysis data keys: {list(analysis_data.keys()) if isinstance(analysis_data, dict) else 'Not a dict'}")
+            
+            # CREATE CONCISE AUDIO SUMMARY FOR TTS
+            speech_content = self._create_concise_audio_summary(analysis_data)
+            
+            # Clean up the content for speech
+            if speech_content:
+                speech_text = self._clean_text_for_speech(speech_content)
+                print(f"🔍 Cleaned speech text length: {len(speech_text)}")
+            else:
+                speech_text = "Medical analysis completed. Please consult with your doctor."
+                print(f"🔍 Using fallback content")
+            
+            # ENSURE IT FITS SARVAM 500 CHARACTER LIMIT
+            if len(speech_text) > 450:  # Leave buffer for safety
+                speech_text = speech_text[:447] + "..."
+                print(f"🔍 Truncated speech text to fit 500 character limit")
+            
+            print(f"🔍 Final speech text length: {len(speech_text)} characters")
+            print(f"🔍 Final speech text preview: {speech_text}")
+            print(f"🔍 === _format_for_speech DEBUG END ===")
+            
+            return speech_text
+            
+        except Exception as e:
+            print(f"❌ Error formatting speech text: {e}")
+            import traceback
+            traceback.print_exc()
+            return self._get_error_speech(language)
+    
+    def _create_concise_audio_summary(self, analysis_data):
+        """Create a concise audio summary that fits within 500 characters"""
+        try:
+            # Get basic data
+            structured_data = analysis_data.get('structured_data', {})
+            test_results = structured_data.get('test_results', [])
+            normal_count = analysis_data.get('normal_count', 0)
+            concerning_count = analysis_data.get('concerning_count', 0)
+            
+            # Build concise summary
+            summary_parts = []
+            
+            # Introduction
+            if test_results:
+                summary_parts.append(f"Your medical report shows {len(test_results)} test results.")
+            
+            # Overall health status
+            if concerning_count == 0:
+                summary_parts.append("All results are in healthy ranges.")
+            elif concerning_count == 1:
+                summary_parts.append(f"{normal_count} results are healthy, 1 needs attention.")
+            else:
+                summary_parts.append(f"{normal_count} results are healthy, {concerning_count} need attention.")
+            
+            # Key recommendations
+            recommendations = analysis_data.get('recommendations', [])
+            if recommendations:
+                # Pick the most important recommendation
+                key_rec = recommendations[0] if recommendations[0] != "This test shows how your body is working." else "Maintain healthy lifestyle habits."
+                summary_parts.append(f"Key advice: {key_rec}")
+            
+            # Doctor consultation reminder
+            summary_parts.append("Always consult your doctor before making health changes.")
+            
+            # Join and return
+            concise_summary = " ".join(summary_parts)
+            
+            print(f"🔍 Concise summary created: {len(concise_summary)} characters")
+            print(f"🔍 Concise summary: {concise_summary}")
+            
+            return concise_summary
+            
+        except Exception as e:
+            print(f"❌ Error creating concise summary: {e}")
+            return "Medical analysis completed. Please consult with your doctor for detailed information."
+
+    def _clean_text_for_speech(self, text):
+        """Clean text to make it more suitable for speech synthesis"""
+        if not text:
+            return "Medical analysis completed."
+        
+        # Remove markdown formatting
+        text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)  # Remove bold
+        text = re.sub(r'\*(.*?)\*', r'\1', text)      # Remove italic
+        text = re.sub(r'#{1,6}\s*', '', text)         # Remove headers
+        text = re.sub(r'📋|📊|💡|⚠️|❌|✅|🔍', '', text)  # Remove emojis
+        
+        # Replace bullet points with spoken equivalents
+        text = re.sub(r'•\s*', '', text)  # Remove bullet points for concise version
+        text = re.sub(r'-\s*', '', text)
+        text = re.sub(r'\d+\.\s*', '', text)
+        
+        # Clean up extra whitespace and line breaks
+        text = re.sub(r'\n+', '. ', text)
+        text = re.sub(r'\s+', ' ', text)
+        
+        # Remove any remaining special characters that might cause TTS issues
+        text = re.sub(r'[^\w\s.,!?;:()\'-]', '', text)
+        
+        return text.strip()
+    
     def generate_fallback_audio(self, text, language):
         """Generate simple fallback audio for testing"""
         try:
@@ -155,11 +270,11 @@ class VoiceAgent:
             fallback_language = 'hi-IN'
             fallback_speaker = 'meera'
             
-            # Limit text length for fallback
-            fallback_text = text[:300] if len(text) > 300 else text
+            # Create very short fallback text
+            fallback_text = "Medical report analysis completed. Please consult with your doctor."
             
             print(f"🔍 Fallback: {fallback_language} with {fallback_speaker}")
-            print(f"🔍 Fallback text: {fallback_text[:100]}...")
+            print(f"🔍 Fallback text: {fallback_text}")
             
             # Try with fallback settings
             audio_data = self.sarvam_client.text_to_speech(
@@ -190,101 +305,15 @@ class VoiceAgent:
             
         return None
     
-    def _format_for_speech(self, analysis_data, language):
-        """Format analysis data for speech synthesis"""
-        try:
-            if not analysis_data.get('success'):
-                return self._get_error_speech(language)
-            
-            # Extract analysis content
-            analysis = analysis_data.get('analysis', {})
-            
-            if isinstance(analysis, dict):
-                summary = analysis.get('summary', '')
-                comprehensive = analysis.get('comprehensive_analysis', '')
-                
-                # Use comprehensive analysis if available, otherwise summary
-                speech_text = comprehensive if comprehensive else summary
-                
-                if not speech_text:
-                    speech_text = "Medical report has been analyzed successfully."
-                
-            else:
-                speech_text = "Medical report analysis completed."
-            
-            # Limit text length for TTS (Sarvam has limits)
-            if len(speech_text) > 500:
-                speech_text = speech_text[:497] + "..."
-            
-            return speech_text
-            
-        except Exception as e:
-            print(f"❌ Error formatting speech text: {e}")
-            return self._get_error_speech(language)
-    
     def _get_error_speech(self, language):
-        """Get error message for speech in specified language"""
+        """Get error message for speech in specified language - CONCISE VERSION"""
         error_messages = {
-            'hi-IN': 'रिपोर्ट का विश्लेषण पूरा हो गया है। कृपया डॉक्टर से सलाह लें।',
-            'en-IN': 'Report analysis completed. Please consult with your doctor.',
-            'ta-IN': 'அறிக்கை பகுப்பாய்வு முடிந்தது. தயவுசெய்து உங்கள் மருத்துவரை அணுகவும்.',
-            'te-IN': 'రిపోర్ట్ విశ్లేషణ పూర్తయింది. దయచేసి మీ వైద్యుడిని సంప్రదించండి.',
-            'kn-IN': 'ವರದಿ ವಿಶ್ಲೇಷಣೆ ಪೂರ್ಣಗೊಂಡಿದೆ. ದಯವಿಟ್ಟು ನಿಮ್ಮ ವೈದ್ಯರನ್ನು ಸಂಪರ್ಕಿಸಿ.',
-            'ml-IN': 'റിപ്പോർട്ട് വിശകലനം പൂർത്തിയായി. ദയവായി നിങ്ങളുടെ ഡോക്ടറെ സമീപിക്കുക.',
+            'hi-IN': 'रिपोर्ट का विश्लेषण पूरा हो गया है। डॉक्टर से सलाह लें।',
+            'en-IN': 'Report analysis completed. Please consult your doctor.',
+            'ta-IN': 'அறிக்கை பகுப்பாய்வு முடிந்தது. மருத்துவரை அணுகவும்.',
+            'te-IN': 'రిపోర్ట్ విశ్లేషణ పూర్తయింది. వైద్యుడిని సంప్రదించండి.',
+            'kn-IN': 'ವರದಿ ವಿಶ್ಲೇಷಣೆ ಪೂರ್ಣಗೊಂಡಿದೆ. ವೈದ್ಯರನ್ನು ಸಂಪರ್ಕಿಸಿ.',
+            'ml-IN': 'റിപ്പോർട്ട് വിശകലനം പൂർത്തിയായി. ഡോക്ടറെ സമീപിക്കുക.',
         }
         
         return error_messages.get(language, error_messages['en-IN'])
-    
-    def test_sarvam_client(self):
-        """Test if Sarvam client is working properly"""
-        try:
-            print(f"🔍 ===== SARVAM CLIENT TEST START =====")
-            
-            # Test with simple text and reliable settings
-            test_text = "Hello, this is a test message."
-            test_language = "hi-IN"  # Use Hindi as most reliable
-            test_speaker = "meera"   # Most reliable speaker
-            
-            print(f"🔍 Testing with:")
-            print(f"   Text: {test_text}")
-            print(f"   Language: {test_language}")
-            print(f"   Speaker: {test_speaker}")
-            
-            # Call the TTS method
-            audio_data = self.sarvam_client.text_to_speech(
-                text=test_text,
-                language=test_language,
-                speaker=test_speaker
-            )
-            
-            print(f"🔍 Audio data received: {type(audio_data)}")
-            print(f"🔍 Audio data length: {len(audio_data) if audio_data else 'None'}")
-            
-            if audio_data:
-                print(f"✅ Sarvam client working! Received {len(audio_data)} bytes")
-                
-                # Test saving the audio
-                project_root = '/Users/nikhilnedungadi/Desktop/NIKHIL/projects/warpspeed/swasthbharat'
-                test_dir = os.path.join(project_root, 'static', 'audio')
-                os.makedirs(test_dir, exist_ok=True)
-                
-                test_file = os.path.join(test_dir, 'sarvam_test.wav')
-                with open(test_file, 'wb') as f:
-                    f.write(audio_data)
-                
-                if os.path.exists(test_file) and os.path.getsize(test_file) > 0:
-                    print(f"✅ Test audio file saved: {test_file}")
-                    print(f"✅ File size: {os.path.getsize(test_file)} bytes")
-                    return True, test_file
-                else:
-                    print(f"❌ Failed to save test audio file")
-                    return False, None
-            else:
-                print(f"❌ Sarvam client returned no data")
-                return False, None
-                
-        except Exception as e:
-            print(f"❌ Sarvam client test failed: {e}")
-            import traceback
-            traceback.print_exc()
-            return False, None

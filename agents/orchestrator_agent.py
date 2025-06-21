@@ -6,8 +6,7 @@ from agents.translation_agent import TranslationAgent
 from agents.voice_agent import VoiceAgent
 from utils.language_detector import LanguageDetector
 
-
-class OrchestratorAgent:  # Make sure this class name matches your import
+class OrchestratorAgent:
     def __init__(self):
         self.ocr_agent = OCRAgent()
         self.medical_agent = MedicalAnalyzerAgent()
@@ -16,7 +15,7 @@ class OrchestratorAgent:  # Make sure this class name matches your import
         self.language_detector = LanguageDetector()
     
     def process_medical_report(self, image_path, user_language='en-IN', audio_language='hi-IN'):
-        """Process medical report with improved error handling and audio generation"""
+        """Process medical report with improved content flow for voice synthesis"""
         try:
             print("Starting report processing...")
             print(f"Image path: {image_path}")
@@ -55,38 +54,47 @@ class OrchestratorAgent:  # Make sure this class name matches your import
             )
             print(f"Analysis result: {analysis_result.get('success', False)}")
             
+            # DEBUG: Print what we got from medical analysis
+            print(f"🔍 Medical analysis keys: {list(analysis_result.keys()) if isinstance(analysis_result, dict) else 'Not a dict'}")
+            if 'audio_summary' in analysis_result:
+                print(f"🔍 Audio summary found! Length: {len(analysis_result['audio_summary'])}")
+                print(f"🔍 Audio summary preview: {analysis_result['audio_summary'][:200]}...")
+            else:
+                print(f"🔍 NO AUDIO SUMMARY FOUND!")
+            
             if not analysis_result.get('success'):
                 return {
                     'success': False,
                     'error': 'Failed to analyze medical report'
                 }
             
-            # Step 4: Handle translation more intelligently
+            # Step 4: Enhanced translation handling
             print(f"Processing language-specific response...")
             
             if user_language == audio_language:
                 print(f"⚠️ User and audio languages are the same ({user_language}), skipping translation")
-                translated_result = analysis_result  # Use original analysis
+                final_analysis = analysis_result
             else:
-                # Only translate if languages are different
                 try:
                     print(f"Translating from {user_language} to {audio_language}")
                     translated_result = self.translation_agent.translate_analysis_to_language(
                         analysis_result, user_language, audio_language
                     )
+                    final_analysis = translated_result if translated_result.get('success') else analysis_result
                 except Exception as translation_error:
                     print(f"❌ Translation failed: {translation_error}")
-                    translated_result = analysis_result  # Use original on translation failure
+                    final_analysis = analysis_result
             
-            # Step 5: Generate voice response with better error handling
+            # Step 5: Generate voice response with actual content - FIXED
             print(f"Generating voice response in {audio_language}...")
+            print(f"Final analysis keys before voice generation: {list(final_analysis.keys())}")
             
             audio_file = None
             try:
+                # PASS THE ANALYSIS DATA DIRECTLY - NOT NESTED
                 audio_file = self.voice_agent.generate_speech_response(
-                    translated_result, audio_language
+                    final_analysis, audio_language  # Pass the analysis data directly
                 )
-                print(f"Voice generation result: {audio_file}")
                 
                 if audio_file and os.path.exists(audio_file):
                     print(f"✅ Audio generated successfully: {audio_file}")
@@ -96,18 +104,19 @@ class OrchestratorAgent:  # Make sure this class name matches your import
                     
             except Exception as voice_error:
                 print(f"❌ Voice generation error: {voice_error}")
+                import traceback
+                traceback.print_exc()
                 audio_file = None
             
-            # Step 6: Generate text response
-            text_response = self._generate_text_response(translated_result, user_language)
+            # Step 6: Generate text response - FIXED
+            text_response = self._generate_text_response(final_analysis, user_language)
             
-            # Return comprehensive result
             return {
                 'success': True,
                 'detected_language': detected_language,
                 'language_name': language_name,
-                'analysis': translated_result,
-                'audio_file': audio_file,  # May be None if generation failed
+                'analysis': final_analysis,
+                'audio_file': audio_file,
                 'audio_language': audio_language,
                 'text_response': text_response
             }
@@ -129,7 +138,8 @@ class OrchestratorAgent:  # Make sure this class name matches your import
             if not analysis_data or not analysis_data.get('success'):
                 return self._get_error_message(language)
             
-            analysis = analysis_data.get('analysis', {})
+            # FIXED: Use analysis_data directly, not nested
+            analysis = analysis_data  # Changed from analysis_data.get('analysis', {})
             if not isinstance(analysis, dict):
                 return self._get_error_message(language)
             
