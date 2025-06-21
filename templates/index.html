@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{ ui_text.title }} - Medical Report Analyzer</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>{{ ui_text.title }}</h1>
+            <p>{{ ui_text.subtitle }}</p>
+        </div>
+        
+        <div class="content">
+            <!-- Language selectors -->
+            <div class="language-selector">
+                <h3>{{ ui_text.choose_language }}</h3>
+                <div class="language-grid">
+                    <div class="language-btn {% if current_ui_lang == 'auto' %}selected{% endif %}" data-lang="auto" onclick="changeUILanguage('auto')">
+                        <div>🔍 Auto</div>
+                        <small>{{ ui_text.auto_detect }}</small>
+                    </div>
+                    <div class="language-btn {% if current_ui_lang == 'en-IN' %}selected{% endif %}" data-lang="en-IN" onclick="changeUILanguage('en-IN')">
+                        <div>🇬🇧 English</div>
+                        <small>English</small>
+                    </div>
+                    <div class="language-btn {% if current_ui_lang == 'hi-IN' %}selected{% endif %}" data-lang="hi-IN" onclick="changeUILanguage('hi-IN')">
+                        <div>🇮🇳 हिंदी</div>
+                        <small>Hindi</small>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Audio language selector -->
+            <div class="audio-language-selector">
+                <h3>{{ ui_text.choose_audio_language }}</h3>
+                <div class="language-grid">
+                    {% for lang_code, lang_info in audio_languages.items() %}
+                    <div class="language-btn {% if current_audio_lang == lang_code %}selected{% endif %}" data-audio-lang="{{ lang_code }}" onclick="changeAudioLanguage('{{ lang_code }}')">
+                        <div>{{ lang_info.flag }} {{ lang_info.name }}</div>
+                        <small>{{ lang_code.split('-')[0].upper() }}</small>
+                    </div>
+                    {% endfor %}
+                </div>
+                <div class="audio-language-note">{{ ui_text.audio_language_note }}</div>
+            </div>
+            
+            <!-- Features section -->
+            <div class="features">
+                <div class="feature">
+                    <div class="feature-icon">📸</div>
+                    <h4>{{ ui_text.upload_photo }}</h4>
+                    <p>{{ ui_text.upload_desc }}</p>
+                </div>
+                <div class="feature">
+                    <div class="feature-icon">🔍</div>
+                    <h4>{{ ui_text.smart_analysis }}</h4>
+                    <p>{{ ui_text.smart_desc }}</p>
+                </div>
+                <div class="feature">
+                    <div class="feature-icon">🎯</div>
+                    <h4>{{ ui_text.multilingual }}</h4>
+                    <p>{{ ui_text.multilingual_desc }}</p>
+                </div>
+            </div>
+            
+            <!-- Upload form -->
+            <form id="uploadForm" enctype="multipart/form-data" method="POST" action="/analyze">
+                <div class="upload-area" id="uploadArea">
+                    <div class="feature-icon">📋</div>
+                    <h3>{{ ui_text.upload_report }}</h3>
+                    <p>{{ ui_text.click_or_drag }}</p>
+                    <input type="file" id="imageFile" name="image" accept="image/*" class="file-input" required>
+                    <button type="button" class="upload-btn" id="chooseFileBtn">
+                        {{ ui_text.choose_file }}
+                    </button>
+                    <div id="fileName" class="file-info" style="display: none;"></div>
+                </div>
+                <button type="submit" class="analyze-btn" id="analyzeBtn" disabled>
+                    {{ ui_text.analyze_report }}
+                </button>
+            </form>
+            
+            <!-- Loading, results, and error sections -->
+            <div class="loading" id="loading">
+                <div class="spinner"></div>
+                <p>{{ ui_text.analyzing }}</p>
+            </div>
+            
+            <div id="languageInfo" class="language-info" style="display:none;">
+                <strong>{{ ui_text.detected_language }}</strong> <span id="detectedLang"></span>
+            </div>
+            
+            <div id="result" class="result" style="display:none;">
+                <h3>{{ ui_text.analysis_result }}</h3>
+                <div id="resultText" class="result-text"></div>
+                <div id="audioDebug" class="audio-debug" style="display:none;"></div>
+                <audio id="resultAudio" class="audio-player" controls style="display:none;">
+                    Your browser does not support the audio player.
+                </audio>
+            </div>
+            
+            <div id="error" class="error" style="display:none;"></div>
+            <div id="success" class="success" style="display:none;"></div>
+        </div>
+    </div>
+    
+    <!-- Template variables for JavaScript -->
+    <script>
+        console.log('Template variables loaded');
+        // Pass data from Flask to JavaScript
+        const uiTexts = {{ ui_text_json|safe }};
+        const currentAudioLang = '{{ current_audio_lang }}';
+        console.log('uiTexts:', uiTexts);
+        console.log('currentAudioLang:', currentAudioLang);
+    </script>
+    
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
