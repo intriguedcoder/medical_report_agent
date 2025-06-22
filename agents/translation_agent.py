@@ -1,7 +1,6 @@
 import os
 from utils.sarvam_client import SarvamClient
 
-
 class TranslationAgent:
     def __init__(self):
         self.sarvam_client = SarvamClient()
@@ -22,7 +21,7 @@ class TranslationAgent:
         }
     
     def translate_text(self, text, source_lang, target_lang):
-        """Translate text with same-language check"""
+        """Translate text using Sarvam-Translate with proper error handling"""
         try:
             print(f"🔍 Translation request: {source_lang} -> {target_lang}")
             
@@ -31,7 +30,7 @@ class TranslationAgent:
                 print(f"⚠️ Source and target languages are the same ({source_lang}), skipping translation")
                 return {
                     'success': True,
-                    'translated_text': text,  # Return original text
+                    'translated_text': text,
                     'source_language': source_lang,
                     'target_language': target_lang,
                     'skipped': True
@@ -52,9 +51,9 @@ class TranslationAgent:
                     'skipped': True
                 }
             
-            print(f"🔍 Proceeding with translation: {source_lang} -> {target_lang}")
+            print(f"🔍 Proceeding with Sarvam-Translate: {source_lang} -> {target_lang}")
             
-            # Proceed with actual translation
+            # Use the corrected Sarvam translate method
             result = self.sarvam_client.translate(
                 text=text,
                 source_language_code=source_lang,
@@ -62,15 +61,17 @@ class TranslationAgent:
             )
             
             if result and result.get('success'):
+                print(f"✅ Translation successful via Sarvam-Translate")
                 return result
             else:
-                print(f"❌ Translation failed, returning original text")
+                print(f"❌ Sarvam-Translate failed: {result.get('error', 'Unknown error')}")
                 return {
                     'success': True,
                     'translated_text': text,  # Fallback to original text
                     'source_language': source_lang,
                     'target_language': target_lang,
-                    'fallback_used': True
+                    'fallback_used': True,
+                    'error': result.get('error', 'Translation failed')
                 }
             
         except Exception as e:
@@ -85,7 +86,7 @@ class TranslationAgent:
             }
     
     def translate_analysis_to_language(self, analysis_data, source_lang, target_lang):
-        """Translate analysis data to target language with improved error handling"""
+        """Translate analysis data to target language using Sarvam-Translate"""
         try:
             print(f"🔍 Translating analysis from {source_lang} to {target_lang}")
             
@@ -106,7 +107,7 @@ class TranslationAgent:
             # Create translated analysis
             translated_analysis = analysis.copy()
             
-            # Fields to translate
+            # Fields to translate using Sarvam-Translate
             fields_to_translate = [
                 'summary',
                 'comprehensive_analysis',
@@ -118,7 +119,7 @@ class TranslationAgent:
             
             for field in fields_to_translate:
                 if field in analysis and analysis[field]:
-                    print(f"🔍 Translating field: {field}")
+                    print(f"🔍 Translating field: {field} using Sarvam-Translate")
                     
                     translation_result = self.translate_text(
                         analysis[field], source_lang, target_lang
@@ -130,6 +131,8 @@ class TranslationAgent:
                             print(f"⚠️ Translation skipped for {field}")
                         elif translation_result.get('fallback_used'):
                             print(f"⚠️ Translation fallback used for {field}")
+                        else:
+                            print(f"✅ Successfully translated {field}")
                     else:
                         print(f"❌ Translation failed for {field}, keeping original")
                         translated_analysis[field] = analysis[field]
@@ -138,8 +141,9 @@ class TranslationAgent:
             # Translate recommendations if they exist
             if 'recommendations' in analysis and isinstance(analysis['recommendations'], list):
                 translated_recommendations = []
-                for rec in analysis['recommendations']:
-                    if isinstance(rec, str):
+                for i, rec in enumerate(analysis['recommendations']):
+                    if isinstance(rec, str) and len(rec.strip()) > 0:
+                        print(f"🔍 Translating recommendation {i+1}")
                         translation_result = self.translate_text(rec, source_lang, target_lang)
                         if translation_result.get('success'):
                             translated_recommendations.append(
@@ -155,12 +159,13 @@ class TranslationAgent:
             # Update language info
             translated_analysis['language'] = target_lang
             translated_analysis['translation_applied'] = translation_success
+            translated_analysis['translation_source'] = 'sarvam-translate'
             
             # Return updated analysis data
             result = analysis_data.copy()
             result['analysis'] = translated_analysis
             
-            print(f"✅ Analysis translation completed")
+            print(f"✅ Analysis translation completed using Sarvam-Translate")
             return result
             
         except Exception as e:

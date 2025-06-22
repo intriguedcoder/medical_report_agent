@@ -7,6 +7,7 @@ class MedicalAnalyzerAgent:
     def __init__(self):
         self.knowledge_base = MedicalKnowledgeBase()
         self.sarvam_client = SarvamClient()
+        self.current_language = 'en-IN'  # Store current language
         
     def analyze_report(self, ocr_result, user_language='en-IN', audio_language=None):
         """Enhanced analysis with simple language that anyone can understand"""
@@ -123,6 +124,9 @@ class MedicalAnalyzerAgent:
         """Create detailed but simple analysis understandable by anyone, including a 5-year-old"""
         print(f"🔍 CREATING: Simple comprehensive analysis with {len(structured_data['test_results'])} test results")
         
+        # IMPORTANT: Store language for use in other methods
+        self.current_language = user_language
+        
         test_results = structured_data.get('test_results', [])
         patient_info = structured_data.get('patient_info', {})
         
@@ -227,7 +231,7 @@ class MedicalAnalyzerAgent:
                 audio_implications = f"Here's what these results mean for your overall health: {'. '.join(health_implications)}."
                 audio_summary_parts.append(audio_implications)
             
-            # Simple personalized advice
+            # Simple personalized advice - NOW PROPERLY TRANSLATED
             simple_advice = self._generate_simple_recommendations(test_results, patient_info, concerning_count)
             recommendations.extend(simple_advice)
             
@@ -274,6 +278,16 @@ class MedicalAnalyzerAgent:
         comprehensive_analysis += closing_advice
         summary += " Always consult with your doctor before making any changes to your diet, medication, or lifestyle."
         
+        # IMPORTANT: Remove duplicates and ensure all recommendations are translated
+        unique_recommendations = []
+        seen = set()
+        for rec in recommendations:
+            if rec not in seen:
+                unique_recommendations.append(rec)
+                seen.add(rec)
+        
+        recommendations = unique_recommendations[:5]  # Limit to 5 unique recommendations
+        
         print(f"🔍 CREATED: Simple summary length = {len(summary)}")
         print(f"🔍 SUMMARY: {summary[:300]}...")
         
@@ -282,8 +296,8 @@ class MedicalAnalyzerAgent:
             'ai_generated': False,
             'comprehensive_analysis': comprehensive_analysis,
             'summary': summary,
-            'audio_summary': comprehensive_audio_summary,  # RESTORED: Comprehensive audio summary
-            'recommendations': recommendations[:5],
+            'audio_summary': comprehensive_audio_summary,
+            'recommendations': recommendations,  # Now properly translated
             'risk_assessment': self._generate_simple_risk_assessment(concerning_count, normal_count),
             'follow_up_actions': self._generate_simple_followup(concerning_count),
             'language': user_language,
@@ -296,165 +310,88 @@ class MedicalAnalyzerAgent:
             'health_implications': health_implications if 'health_implications' in locals() else []
         }
 
-    def _analyze_comprehensive_risk_factors(self, test_results):
-        """Analyze comprehensive risk factors based on test results"""
+    def _translate_recommendation(self, recommendation, target_language):
+        """Translate a single recommendation to target language"""
+        try:
+            if target_language == 'en-IN':
+                return recommendation
+            
+            # Use Sarvam client for translation
+            if hasattr(self, 'sarvam_client'):
+                result = self.sarvam_client.translate(
+                    text=recommendation,
+                    source_language_code='en-IN',
+                    target_language_code=target_language
+                )
+                
+                if result and result.get('success'):
+                    return result.get('translated_text', recommendation)
+            
+            return recommendation
+        except:
+            return recommendation
+
+    def _generate_simple_recommendations(self, test_results, patient_info, concerning_count):
+        """Generate simple recommendations anyone can follow - NOW PROPERLY TRANSLATED"""
         
-        risk_factors = []
+        simple_recs = []
         
+        # Basic healthy living advice - NOW PROPERLY TRANSLATED
+        if concerning_count > 0:
+            basic_recs = [
+                "Eat more fruits and vegetables every day",
+                "Drink lots of water instead of sugary drinks",
+                "Play outside or exercise for 30 minutes daily",
+                "Sleep 8-9 hours every night"
+            ]
+        else:
+            basic_recs = [
+                "Keep eating healthy foods like you are doing",
+                "Keep playing and being active",
+                "Keep sleeping well every night"
+            ]
+        
+        # Translate basic recommendations if needed
+        translated_basic_recs = []
+        for rec in basic_recs:
+            if hasattr(self, 'current_language') and self.current_language != 'en-IN':
+                # Use the translation method
+                translated_rec = self._translate_recommendation(rec, self.current_language)
+                translated_basic_recs.append(translated_rec)
+            else:
+                translated_basic_recs.append(rec)
+        
+        simple_recs.extend(translated_basic_recs)
+        
+        # Test-specific simple advice - ALSO TRANSLATE THESE
+        test_specific_recs = []
         for test in test_results:
             test_name = test['name'].lower()
             try:
                 value = float(test['value'])
                 
-                # Blood sugar risks
-                if any(term in test_name for term in ['glucose', 'sugar']):
-                    if value > 200:
-                        risk_factors.append("Very high blood sugar increases your risk of diabetes, heart disease, kidney damage, and nerve problems")
-                    elif value > 140:
-                        risk_factors.append("High blood sugar increases your risk of developing diabetes and heart problems")
-                    elif value < 70:
-                        risk_factors.append("Low blood sugar can cause dangerous episodes of weakness, confusion, and fainting")
-                
-                # Cholesterol risks
-                elif 'cholesterol' in test_name:
-                    if value > 240:
-                        risk_factors.append("Very high cholesterol significantly increases your risk of heart attacks, strokes, and blocked arteries")
-                    elif value > 200:
-                        risk_factors.append("High cholesterol increases your risk of heart disease and stroke")
-                
-                # Blood pressure risks
-                elif 'pressure' in test_name and '/' in test['value']:
-                    try:
-                        systolic = int(test['value'].split('/')[0])
-                        if systolic > 180:
-                            risk_factors.append("Very high blood pressure greatly increases your risk of heart attacks, strokes, kidney disease, and heart failure")
-                        elif systolic > 140:
-                            risk_factors.append("High blood pressure increases your risk of heart disease, stroke, and kidney problems")
-                    except:
-                        pass
-                
-                # HbA1c risks
-                elif any(term in test_name for term in ['hba1c', 'a1c']):
-                    if value > 7.0:
-                        risk_factors.append("Poor long-term blood sugar control increases your risk of diabetes complications including eye, kidney, and nerve damage")
-                    elif value > 6.4:
-                        risk_factors.append("Elevated long-term blood sugar indicates diabetes risk and potential organ damage")
-                
-                # Hemoglobin risks
-                elif any(term in test_name for term in ['hemoglobin', 'hb']):
-                    if value < 10.0:
-                        risk_factors.append("Severe anemia can cause heart problems, extreme fatigue, and difficulty with daily activities")
-                    elif value < 12.0:
-                        risk_factors.append("Low hemoglobin (anemia) can cause fatigue, weakness, and reduced quality of life")
-                
-                # Creatinine risks
-                elif 'creatinine' in test_name:
-                    if value > 2.0:
-                        risk_factors.append("High creatinine indicates significant kidney problems that can lead to kidney failure")
-                    elif value > 1.3:
-                        risk_factors.append("Elevated creatinine suggests kidney function problems that need monitoring")
-                
-                # Thyroid risks
-                elif any(term in test_name for term in ['tsh', 'thyroid']):
-                    if value > 10.0:
-                        risk_factors.append("Severely underactive thyroid can cause heart problems, depression, and memory issues")
-                    elif value < 0.1:
-                        risk_factors.append("Overactive thyroid can cause heart rhythm problems, bone loss, and anxiety")
-                
+                if any(term in test_name for term in ['glucose', 'sugar']) and value > 140:
+                    test_specific_recs.append("Eat less candy, cookies, and sweet things")
+                elif 'cholesterol' in test_name and value > 200:
+                    test_specific_recs.append("Eat fish, nuts, and avoid fried foods")
+                elif 'hemoglobin' in test_name and value < 12:
+                    test_specific_recs.append("Eat spinach, meat, and foods with iron")
+                    
             except:
                 continue
         
-        return risk_factors
-
-    def _generate_health_implications(self, test_results, concerning_count):
-        """Generate comprehensive health implications"""
+        # Translate test-specific recommendations
+        for rec in test_specific_recs:
+            if hasattr(self, 'current_language') and self.current_language != 'en-IN':
+                translated_rec = self._translate_recommendation(rec, self.current_language)
+                simple_recs.append(translated_rec)
+            else:
+                simple_recs.append(rec)
         
-        implications = []
-        
-        if concerning_count == 0:
-            implications.append("Your test results show that your body systems are functioning well")
-            implications.append("You have a lower risk of developing chronic diseases")
-            implications.append("Your current health status supports a good quality of life")
-        elif concerning_count == 1:
-            implications.append("Most of your body systems are healthy, which is a good foundation")
-            implications.append("The one area of concern can be improved with proper care")
-            implications.append("Early intervention can prevent this from becoming a bigger problem")
-        elif concerning_count <= len(test_results) // 2:
-            implications.append("Some of your body systems need attention, but many are still functioning well")
-            implications.append("You may be at increased risk for certain health complications")
-            implications.append("With proper treatment, these issues can be managed effectively")
-        else:
-            implications.append("Multiple body systems need attention, which requires comprehensive care")
-            implications.append("You may be at higher risk for serious health complications")
-            implications.append("Working closely with healthcare providers is essential for your health")
-        
-        return implications
-
-    def _generate_general_health_advice(self, normal_count, concerning_count, total_count):
-        """Generate general health advice based on overall report status"""
-        
-        if concerning_count == 0:
-            # All results are good
-            return "Good job! Your health is excellent and all your test results look great. However, it's always good to go for regular checkups every 6 months to make sure you stay healthy. Keep eating well, exercising, and taking care of yourself!"
-        
-        elif concerning_count == 1:
-            # Mostly good with one concern
-            return "Overall, you're doing well with most of your health markers being good. There's just one area that needs attention, but this is very manageable. Regular checkups every 3-4 months will help monitor your progress and keep you on track to better health."
-        
-        elif concerning_count <= total_count // 2:
-            # Some concerns but not majority
-            return "Your health report shows a mix of good and concerning results. The good news is that many things are working well in your body. Focus on the areas that need improvement, and with proper care and regular checkups every 2-3 months, you can get back to optimal health."
-        
-        else:
-            # Majority of results concerning
-            return "Your health report shows several areas that need attention, but don't worry - with the right care and lifestyle changes, these can be improved. It's important to work closely with your doctor and have regular checkups every month until things improve. Remember, taking small steps every day towards better health will make a big difference."
-
-    def _create_audio_parameter_explanation(self, test_name, test_value, test_unit, interpretation, position):
-        """Create detailed audio explanation for each parameter"""
-        
-        # Start with parameter number and name
-        audio_text = f"Parameter {position}: {test_name}. "
-        
-        # Add the value with unit
-        if test_unit:
-            audio_text += f"Your result is {test_value} {test_unit}. "
-        else:
-            audio_text += f"Your result is {test_value}. "
-        
-        # Add what this test measures
-        body_part = self._get_body_part_explanation(test_name)
-        audio_text += f"This test measures your {body_part}. "
-        
-        # Add interpretation with health implications
-        if interpretation['status'] == 'good':
-            audio_text += f"Your result is in the healthy range, which is excellent. {interpretation['health_implication']} "
-        elif interpretation['status'] == 'a little high':
-            audio_text += f"Your result is slightly higher than the ideal range. {interpretation['health_implication']} "
-        elif interpretation['status'] == 'a little low':
-            audio_text += f"Your result is slightly lower than the ideal range. {interpretation['health_implication']} "
-        elif interpretation['status'] == 'needs attention':
-            audio_text += f"Your result requires attention and should be discussed with your doctor. {interpretation['health_implication']} "
-        else:
-            audio_text += f"{interpretation['health_implication']} "
-        
-        # Add simple advice if available
-        if interpretation.get('simple_advice'):
-            audio_text += f"{interpretation['simple_advice']} "
-        
-        return audio_text
-
-    def _create_audio_overall_summary(self, normal_count, concerning_count, total_count):
-        """Create overall summary for audio"""
-        
-        if concerning_count == 0:
-            return f"Overall, all {normal_count} parameters are in healthy ranges. This is excellent news and shows your body is functioning well."
-        elif concerning_count == 1:
-            return f"Overall, {normal_count} out of {total_count} parameters are healthy, with 1 parameter needing some attention. This is manageable with proper care."
-        else:
-            return f"Overall, {normal_count} parameters are healthy, while {concerning_count} parameters need attention. With proper medical guidance, these can be improved."
+        return simple_recs[:6]  # Limit to 6 simple recommendations
 
     def _get_simple_interpretation(self, test_name, test_value, test_unit):
-        """Get simple interpretation with specific health implications"""
+        """Get simple interpretation with specific health implications - FIXED DEFAULT CASE"""
         
         try:
             value_float = float(test_value)
@@ -663,11 +600,17 @@ class MedicalAnalyzerAgent:
                     'simple_advice': 'You need more vitamin D. Take supplements.'
                 }
         
-        # Default for unknown tests
+        # FIXED: Default for unknown tests - NOW TRANSLATES
+        default_advice = f'This test shows how your {self._get_body_part_explanation(test_name)} is working.'
+        
+        # Translate default advice if needed
+        if hasattr(self, 'current_language') and self.current_language != 'en-IN':
+            default_advice = self._translate_recommendation(default_advice, self.current_language)
+        
         return {
             'status': 'unknown',
             'health_implication': f'This test measures important aspects of your {self._get_body_part_explanation(test_name)} and helps doctors understand your health.',
-            'simple_advice': f'This test shows how your {self._get_body_part_explanation(test_name)} is working.'
+            'simple_advice': default_advice
         }
 
     def _get_body_part_explanation(self, test_name):
@@ -692,6 +635,163 @@ class MedicalAnalyzerAgent:
             return "iron levels and blood strength"
         else:
             return "body"
+
+    def _analyze_comprehensive_risk_factors(self, test_results):
+        """Analyze comprehensive risk factors based on test results"""
+        
+        risk_factors = []
+        
+        for test in test_results:
+            test_name = test['name'].lower()
+            try:
+                value = float(test['value'])
+                
+                # Blood sugar risks
+                if any(term in test_name for term in ['glucose', 'sugar']):
+                    if value > 200:
+                        risk_factors.append("Very high blood sugar increases your risk of diabetes, heart disease, kidney damage, and nerve problems")
+                    elif value > 140:
+                        risk_factors.append("High blood sugar increases your risk of developing diabetes and heart problems")
+                    elif value < 70:
+                        risk_factors.append("Low blood sugar can cause dangerous episodes of weakness, confusion, and fainting")
+                
+                # Cholesterol risks
+                elif 'cholesterol' in test_name:
+                    if value > 240:
+                        risk_factors.append("Very high cholesterol significantly increases your risk of heart attacks, strokes, and blocked arteries")
+                    elif value > 200:
+                        risk_factors.append("High cholesterol increases your risk of heart disease and stroke")
+                
+                # Blood pressure risks
+                elif 'pressure' in test_name and '/' in test['value']:
+                    try:
+                        systolic = int(test['value'].split('/')[0])
+                        if systolic > 180:
+                            risk_factors.append("Very high blood pressure greatly increases your risk of heart attacks, strokes, kidney disease, and heart failure")
+                        elif systolic > 140:
+                            risk_factors.append("High blood pressure increases your risk of heart disease, stroke, and kidney problems")
+                    except:
+                        pass
+                
+                # HbA1c risks
+                elif any(term in test_name for term in ['hba1c', 'a1c']):
+                    if value > 7.0:
+                        risk_factors.append("Poor long-term blood sugar control increases your risk of diabetes complications including eye, kidney, and nerve damage")
+                    elif value > 6.4:
+                        risk_factors.append("Elevated long-term blood sugar indicates diabetes risk and potential organ damage")
+                
+                # Hemoglobin risks
+                elif any(term in test_name for term in ['hemoglobin', 'hb']):
+                    if value < 10.0:
+                        risk_factors.append("Severe anemia can cause heart problems, extreme fatigue, and difficulty with daily activities")
+                    elif value < 12.0:
+                        risk_factors.append("Low hemoglobin (anemia) can cause fatigue, weakness, and reduced quality of life")
+                
+                # Creatinine risks
+                elif 'creatinine' in test_name:
+                    if value > 2.0:
+                        risk_factors.append("High creatinine indicates significant kidney problems that can lead to kidney failure")
+                    elif value > 1.3:
+                        risk_factors.append("Elevated creatinine suggests kidney function problems that need monitoring")
+                
+                # Thyroid risks
+                elif any(term in test_name for term in ['tsh', 'thyroid']):
+                    if value > 10.0:
+                        risk_factors.append("Severely underactive thyroid can cause heart problems, depression, and memory issues")
+                    elif value < 0.1:
+                        risk_factors.append("Overactive thyroid can cause heart rhythm problems, bone loss, and anxiety")
+                
+            except:
+                continue
+        
+        return risk_factors
+
+    def _generate_health_implications(self, test_results, concerning_count):
+        """Generate comprehensive health implications"""
+        
+        implications = []
+        
+        if concerning_count == 0:
+            implications.append("Your test results show that your body systems are functioning well")
+            implications.append("You have a lower risk of developing chronic diseases")
+            implications.append("Your current health status supports a good quality of life")
+        elif concerning_count == 1:
+            implications.append("Most of your body systems are healthy, which is a good foundation")
+            implications.append("The one area of concern can be improved with proper care")
+            implications.append("Early intervention can prevent this from becoming a bigger problem")
+        elif concerning_count <= len(test_results) // 2:
+            implications.append("Some of your body systems need attention, but many are still functioning well")
+            implications.append("You may be at increased risk for certain health complications")
+            implications.append("With proper treatment, these issues can be managed effectively")
+        else:
+            implications.append("Multiple body systems need attention, which requires comprehensive care")
+            implications.append("You may be at higher risk for serious health complications")
+            implications.append("Working closely with healthcare providers is essential for your health")
+        
+        return implications
+
+    def _generate_general_health_advice(self, normal_count, concerning_count, total_count):
+        """Generate general health advice based on overall report status"""
+        
+        if concerning_count == 0:
+            # All results are good
+            return "Good job! Your health is excellent and all your test results look great. However, it's always good to go for regular checkups every 6 months to make sure you stay healthy. Keep eating well, exercising, and taking care of yourself!"
+        
+        elif concerning_count == 1:
+            # Mostly good with one concern
+            return "Overall, you're doing well with most of your health markers being good. There's just one area that needs attention, but this is very manageable. Regular checkups every 3-4 months will help monitor your progress and keep you on track to better health."
+        
+        elif concerning_count <= total_count // 2:
+            # Some concerns but not majority
+            return "Your health report shows a mix of good and concerning results. The good news is that many things are working well in your body. Focus on the areas that need improvement, and with proper care and regular checkups every 2-3 months, you can get back to optimal health."
+        
+        else:
+            # Majority of results concerning
+            return "Your health report shows several areas that need attention, but don't worry - with the right care and lifestyle changes, these can be improved. It's important to work closely with your doctor and have regular checkups every month until things improve. Remember, taking small steps every day towards better health will make a big difference."
+
+    def _create_audio_parameter_explanation(self, test_name, test_value, test_unit, interpretation, position):
+        """Create detailed audio explanation for each parameter"""
+        
+        # Start with parameter number and name
+        audio_text = f"Parameter {position}: {test_name}. "
+        
+        # Add the value with unit
+        if test_unit:
+            audio_text += f"Your result is {test_value} {test_unit}. "
+        else:
+            audio_text += f"Your result is {test_value}. "
+        
+        # Add what this test measures
+        body_part = self._get_body_part_explanation(test_name)
+        audio_text += f"This test measures your {body_part}. "
+        
+        # Add interpretation with health implications
+        if interpretation['status'] == 'good':
+            audio_text += f"Your result is in the healthy range, which is excellent. {interpretation['health_implication']} "
+        elif interpretation['status'] == 'a little high':
+            audio_text += f"Your result is slightly higher than the ideal range. {interpretation['health_implication']} "
+        elif interpretation['status'] == 'a little low':
+            audio_text += f"Your result is slightly lower than the ideal range. {interpretation['health_implication']} "
+        elif interpretation['status'] == 'needs attention':
+            audio_text += f"Your result requires attention and should be discussed with your doctor. {interpretation['health_implication']} "
+        else:
+            audio_text += f"{interpretation['health_implication']} "
+        
+        # Add simple advice if available
+        if interpretation.get('simple_advice'):
+            audio_text += f"{interpretation['simple_advice']} "
+        
+        return audio_text
+
+    def _create_audio_overall_summary(self, normal_count, concerning_count, total_count):
+        """Create overall summary for audio"""
+        
+        if concerning_count == 0:
+            return f"Overall, all {normal_count} parameters are in healthy ranges. This is excellent news and shows your body is functioning well."
+        elif concerning_count == 1:
+            return f"Overall, {normal_count} out of {total_count} parameters are healthy, with 1 parameter needing some attention. This is manageable with proper care."
+        else:
+            return f"Overall, {normal_count} parameters are healthy, while {concerning_count} parameters need attention. With proper medical guidance, these can be improved."
 
     def _identify_simple_risk_factors(self, test_results):
         """Identify risk factors in simple language"""
@@ -718,44 +818,6 @@ class MedicalAnalyzerAgent:
                 continue
         
         return simple_risks
-
-    def _generate_simple_recommendations(self, test_results, patient_info, concerning_count):
-        """Generate simple recommendations anyone can follow"""
-        
-        simple_recs = []
-        
-        # Basic healthy living advice
-        if concerning_count > 0:
-            simple_recs.extend([
-                "Eat more fruits and vegetables every day",
-                "Drink lots of water instead of sugary drinks",
-                "Play outside or exercise for 30 minutes daily",
-                "Sleep 8-9 hours every night"
-            ])
-        else:
-            simple_recs.extend([
-                "Keep eating healthy foods like you are doing",
-                "Keep playing and being active",
-                "Keep sleeping well every night"
-            ])
-        
-        # Test-specific simple advice
-        for test in test_results:
-            test_name = test['name'].lower()
-            try:
-                value = float(test['value'])
-                
-                if any(term in test_name for term in ['glucose', 'sugar']) and value > 140:
-                    simple_recs.append("Eat less candy, cookies, and sweet things")
-                elif 'cholesterol' in test_name and value > 200:
-                    simple_recs.append("Eat fish, nuts, and avoid fried foods")
-                elif 'hemoglobin' in test_name and value < 12:
-                    simple_recs.append("Eat spinach, meat, and foods with iron")
-                    
-            except:
-                continue
-        
-        return simple_recs[:6]  # Limit to 6 simple recommendations
 
     def _generate_simple_risk_assessment(self, concerning_count, normal_count):
         """Generate simple risk assessment"""

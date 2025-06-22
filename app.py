@@ -1,3 +1,4 @@
+
 from flask import Flask, request, jsonify, render_template_string, send_from_directory, session
 from agents.orchestrator_agent import OrchestratorAgent
 import os
@@ -5,107 +6,30 @@ import tempfile
 import hashlib
 import shutil
 from dotenv import load_dotenv
+from config import Config
+from translations import UI_TRANSLATIONS, AUDIO_LANGUAGES
 
 load_dotenv()
 
 app = Flask(__name__)
-app.secret_key = 'your-secret-key-here'
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
+Config.init_app(app)  # Initialize directories and settings
+app.config.from_object(Config)
+
 orchestrator = OrchestratorAgent()
 
 # Add processing files tracking to prevent duplicates
 processing_files = set()
 
-# UI Language Translations with English as default
-UI_TRANSLATIONS = {
-    'en-IN': {
-        'title': '🏥 Health Partner',
-        'subtitle': 'Your companion for understanding medical reports',
-        'choose_language': '🌐 Choose Language',
-        'choose_audio_language': '🔊 Choose Audio Language',
-        'auto_detect': 'Auto Detect',
-        'upload_photo': 'Upload Photo',
-        'upload_desc': 'Send a picture of your medical report',
-        'smart_analysis': 'Smart Analysis',
-        'smart_desc': 'AI will analyze your report',
-        'multilingual': 'Multilingual Support',
-        'multilingual_desc': 'Listen to results in multiple languages',
-        'upload_report': 'Upload Medical Report',
-        'click_or_drag': 'Click here or drag file here',
-        'choose_file': '📁 Choose File',
-        'analyze_report': '🔍 Analyze Report',
-        'analyzing': 'Your report is being analyzed... Please wait',
-        'detected_language': '🔍 Detected Language:',
-        'analysis_result': '📊 Analysis Result',
-        'selected_file': 'Selected file:',
-        'no_file_error': 'Please select a file first.',
-        'network_error': 'Network error:',
-        'error_prefix': 'Error:',
-        'processing_error': 'File is already being processed',
-        'invalid_file': 'Please upload only image files (JPG, PNG, etc.)',
-        'audio_language_note': 'Audio will be generated in the selected language',
-        'file_too_large': 'File is too large. Maximum size is 16MB.',
-        'empty_file': 'The uploaded file is empty.'
-    },
-    'hi-IN': {
-        'title': '🏥 स्वास्थ्य साथी',
-        'subtitle': 'आपकी मेडिकल रिपोर्ट को समझने में आपका साथी',
-        'choose_language': '🌐 भाषा चुनें',
-        'choose_audio_language': '🔊 ऑडियो भाषा चुनें',
-        'auto_detect': 'स्वचालित पहचान',
-        'upload_photo': 'फोटो अपलोड करें',
-        'upload_desc': 'अपनी मेडिकल रिपोर्ट की तस्वीर भेजें',
-        'smart_analysis': 'स्मार्ट विश्लेषण',
-        'smart_desc': 'AI आपकी रिपोर्ट का विश्लेषण करेगा',
-        'multilingual': 'बहुभाषी समर्थन',
-        'multilingual_desc': 'कई भाषाओं में परिणाम सुनें',
-        'upload_report': 'मेडिकल रिपोर्ट अपलोड करें',
-        'click_or_drag': 'यहाँ क्लिक करें या फाइल को यहाँ खींचें',
-        'choose_file': '📁 फाइल चुनें',
-        'analyze_report': '🔍 रिपोर्ट का विश्लेषण करें',
-        'analyzing': 'आपकी रिपोर्ट का विश्लेषण हो रहा है... कृपया प्रतीक्षा करें',
-        'detected_language': '🔍 पहचानी गई भाषा:',
-        'analysis_result': '📊 विश्लेषण परिणाम',
-        'selected_file': 'चुनी गई फाइल:',
-        'no_file_error': 'कृपया पहले एक फाइल चुनें।',
-        'network_error': 'नेटवर्क त्रुटि:',
-        'error_prefix': 'त्रुटि:',
-        'processing_error': 'फाइल पहले से प्रोसेसिंग में है',
-        'invalid_file': 'केवल इमेज फाइलें अपलोड करें (JPG, PNG, etc.)',
-        'audio_language_note': 'चुनी गई भाषा में ऑडियो बनाया जाएगा',
-        'file_too_large': 'फाइल बहुत बड़ी है। अधिकतम आकार 16MB है।',
-        'empty_file': 'अपलोड की गई फाइल खाली है।'
-    }
-}
-
-# Audio language options
-AUDIO_LANGUAGES = {
-    'en-IN': {'name': 'English', 'flag': '🇬🇧'},
-    'hi-IN': {'name': 'हिंदी', 'flag': '🇮🇳'},
-    'ta-IN': {'name': 'தமிழ்', 'flag': '🇮🇳'},
-    'te-IN': {'name': 'తెలుగు', 'flag': '🇮🇳'},
-    'bn-IN': {'name': 'বাংলা', 'flag': '🇮🇳'},
-    'gu-IN': {'name': 'ગુજરાતી', 'flag': '🇮🇳'},
-    'kn-IN': {'name': 'ಕನ್ನಡ', 'flag': '🇮🇳'},
-    'ml-IN': {'name': 'മലയാളം', 'flag': '🇮🇳'},
-    'mr-IN': {'name': 'मराठी', 'flag': '🇮🇳'},
-    'pa-IN': {'name': 'ਪੰਜਾਬੀ', 'flag': '🇮🇳'}
-}
-
-def get_ui_language():
-    """Get UI language from session or default to English"""
-    return session.get('ui_language', 'en-IN')
-
-def get_audio_language():
-    """Get audio language from session or default to UI language"""
-    return session.get('audio_language', get_ui_language())
+def get_selected_language():
+    """Get selected language from session or default to Hindi"""
+    return session.get('selected_language', 'hi-IN')
 
 def get_ui_text(key):
     """Get UI text in current language"""
-    ui_lang = get_ui_language()
-    return UI_TRANSLATIONS.get(ui_lang, UI_TRANSLATIONS['en-IN']).get(key, key)
+    selected_lang = get_selected_language()
+    return UI_TRANSLATIONS.get(selected_lang, UI_TRANSLATIONS['hi-IN']).get(key, key)
 
-# Enhanced web interface with better file upload handling
+# Enhanced web interface with email functionality
 WEB_INTERFACE = """
 <!DOCTYPE html>
 <html>
@@ -122,7 +46,7 @@ WEB_INTERFACE = """
             padding: 20px;
         }
         .container { 
-            max-width: 800px; 
+            max-width: 900px; 
             margin: 0 auto; 
             background: white;
             border-radius: 20px;
@@ -144,20 +68,27 @@ WEB_INTERFACE = """
             padding: 20px;
             border-radius: 10px;
             margin-bottom: 30px;
+            border-left: 5px solid #4CAF50;
         }
         .language-selector h3 {
             margin-bottom: 15px;
             color: #333;
         }
+        .language-note {
+            font-size: 0.9em;
+            color: #666;
+            margin-bottom: 15px;
+            font-style: italic;
+        }
         .language-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
             gap: 10px;
         }
         .language-btn {
             background: white;
             border: 2px solid #ddd;
-            padding: 10px;
+            padding: 12px;
             border-radius: 8px;
             cursor: pointer;
             text-align: center;
@@ -174,22 +105,28 @@ WEB_INTERFACE = """
             color: white;
         }
         
-        .audio-language-selector {
-            background: #fff3e0;
+        .email-options {
+            background: #e3f2fd;
             padding: 20px;
             border-radius: 10px;
-            margin-bottom: 30px;
-            border-left: 5px solid #ff9800;
+            margin: 20px 0;
+            border-left: 5px solid #2196F3;
         }
-        .audio-language-selector h3 {
+        .email-options h4 {
             margin-bottom: 15px;
-            color: #333;
+            color: #1976D2;
         }
-        .audio-language-note {
+        .patient-info {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            margin-top: 15px;
+        }
+        .patient-info input {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
             font-size: 0.9em;
-            color: #666;
-            margin-top: 10px;
-            font-style: italic;
         }
         
         .upload-area { 
@@ -338,15 +275,47 @@ WEB_INTERFACE = """
             font-size: 0.9em;
             color: #666;
         }
-        .audio-debug {
+        .email-result {
             background: #fff3cd;
             border: 1px solid #ffeaa7;
-            padding: 10px;
-            margin-top: 10px;
-            border-radius: 5px;
-            font-size: 0.9em;
-            color: #856404;
+            padding: 20px;
+            margin-top: 20px;
+            border-radius: 10px;
         }
+        .email-urgency {
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+            font-weight: bold;
+            text-align: center;
+        }
+        .urgency-high { background: #f44336; color: white; }
+        .urgency-medium { background: #ff9800; color: white; }
+        .urgency-low { background: #2196f3; color: white; }
+        .urgency-routine { background: #4caf50; color: white; }
+        .email-field {
+            background: white;
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+            font-family: monospace;
+        }
+        .email-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+        .email-actions button {
+            flex: 1;
+            padding: 10px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.9em;
+        }
+        .copy-btn { background: #4CAF50; color: white; }
+        .download-btn { background: #2196F3; color: white; }
     </style>
 </head>
 <body>
@@ -359,33 +328,18 @@ WEB_INTERFACE = """
         <div class="content">
             <div class="language-selector">
                 <h3>{{ ui_text.choose_language }}</h3>
-                <div class="language-grid">
-                    <div class="language-btn {% if current_ui_lang == 'auto' %}selected{% endif %}" data-lang="auto" onclick="changeUILanguage('auto')">
-                        <div>🔍 Auto</div>
-                        <small>{{ ui_text.auto_detect }}</small>
-                    </div>
-                    <div class="language-btn {% if current_ui_lang == 'en-IN' %}selected{% endif %}" data-lang="en-IN" onclick="changeUILanguage('en-IN')">
-                        <div>🇬🇧 English</div>
-                        <small>English</small>
-                    </div>
-                    <div class="language-btn {% if current_ui_lang == 'hi-IN' %}selected{% endif %}" data-lang="hi-IN" onclick="changeUILanguage('hi-IN')">
-                        <div>🇮🇳 हिंदी</div>
-                        <small>Hindi</small>
-                    </div>
+                <div class="language-note">
+                    📝 Text display and 🔊 audio will both use the selected language
                 </div>
-            </div>
-            
-            <div class="audio-language-selector">
-                <h3>{{ ui_text.choose_audio_language }}</h3>
                 <div class="language-grid">
                     {% for lang_code, lang_info in audio_languages.items() %}
-                    <div class="language-btn {% if current_audio_lang == lang_code %}selected{% endif %}" data-audio-lang="{{ lang_code }}" onclick="changeAudioLanguage('{{ lang_code }}')">
+                    <div class="language-btn {% if current_language == lang_code %}selected{% endif %}" 
+                         data-lang="{{ lang_code }}" onclick="changeLanguage('{{ lang_code }}')">
                         <div>{{ lang_info.flag }} {{ lang_info.name }}</div>
                         <small>{{ lang_code.split('-')[0].upper() }}</small>
                     </div>
                     {% endfor %}
                 </div>
-                <div class="audio-language-note">{{ ui_text.audio_language_note }}</div>
             </div>
             
             <div class="features">
@@ -407,6 +361,21 @@ WEB_INTERFACE = """
             </div>
             
             <form id="uploadForm" enctype="multipart/form-data" method="POST">
+                <div class="email-options">
+                    <h4>📧 Doctor Consultation Email</h4>
+                    <label>
+                        <input type="checkbox" id="generateEmail" checked> 
+                        Generate email draft for doctor consultation
+                    </label>
+                    
+                    <div id="patientInfo" class="patient-info">
+                        <input type="text" id="patientName" placeholder="Patient Name (Optional)">
+                        <input type="text" id="patientAge" placeholder="Age (Optional)">
+                        <input type="email" id="patientEmail" placeholder="Your Email (Optional)">
+                        <input type="tel" id="patientPhone" placeholder="Phone Number (Optional)">
+                    </div>
+                </div>
+                
                 <div class="upload-area" id="uploadArea">
                     <div class="feature-icon">📋</div>
                     <h3>{{ ui_text.upload_report }}</h3>
@@ -434,10 +403,24 @@ WEB_INTERFACE = """
             <div id="result" class="result" style="display:none;">
                 <h3>{{ ui_text.analysis_result }}</h3>
                 <div id="resultText" class="result-text"></div>
-                <div id="audioDebug" class="audio-debug" style="display:none;"></div>
                 <audio id="resultAudio" class="audio-player" controls style="display:none;">
                     Your browser does not support the audio player.
                 </audio>
+            </div>
+            
+            <div id="emailResult" class="email-result" style="display:none;">
+                <h3>📧 Doctor Consultation Email Draft</h3>
+                <div class="email-urgency" id="emailUrgency"></div>
+                <div class="email-content">
+                    <h4>Subject:</h4>
+                    <div id="emailSubject" class="email-field"></div>
+                    <h4>Email Body:</h4>
+                    <textarea id="emailBody" class="email-field" rows="20"></textarea>
+                </div>
+                <div class="email-actions">
+                    <button onclick="copyEmailToClipboard()" class="copy-btn">📋 Copy Email</button>
+                    <button onclick="downloadEmail()" class="download-btn">💾 Download as Text</button>
+                </div>
             </div>
             
             <div id="error" class="error" style="display:none;"></div>
@@ -446,13 +429,21 @@ WEB_INTERFACE = """
     </div>
 
     <script>
-        let selectedLanguage = 'auto';
-        let selectedAudioLanguage = '{{ current_audio_lang }}';
+        let selectedLanguage = '{{ current_language }}';
         let isSubmitting = false;
         const uiTexts = {{ ui_text_json|safe }};
         
-        function changeUILanguage(lang) {
-            fetch('/set_ui_language', {
+        function changeLanguage(lang) {
+            selectedLanguage = lang;
+            
+            // Update visual selection
+            document.querySelectorAll('[data-lang]').forEach(btn => {
+                btn.classList.remove('selected');
+            });
+            document.querySelector(`[data-lang="${lang}"]`).classList.add('selected');
+            
+            // Save to session and reload page to update UI
+            fetch('/set_language', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -462,33 +453,6 @@ WEB_INTERFACE = """
                 window.location.reload();
             });
         }
-        
-        function changeAudioLanguage(lang) {
-            selectedAudioLanguage = lang;
-            
-            // Update visual selection
-            document.querySelectorAll('[data-audio-lang]').forEach(btn => {
-                btn.classList.remove('selected');
-            });
-            document.querySelector(`[data-audio-lang="${lang}"]`).classList.add('selected');
-            
-            // Save to session
-            fetch('/set_audio_language', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({language: lang})
-            });
-        }
-        
-        document.querySelectorAll('.language-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                if (btn.dataset.lang !== undefined) {
-                    selectedLanguage = btn.dataset.lang;
-                }
-            });
-        });
         
         const uploadArea = document.getElementById('uploadArea');
         const fileInput = document.getElementById('imageFile');
@@ -500,7 +464,7 @@ WEB_INTERFACE = """
         const error = document.getElementById('error');
         const success = document.getElementById('success');
         const languageInfo = document.getElementById('languageInfo');
-        const audioDebug = document.getElementById('audioDebug');
+        const emailResult = document.getElementById('emailResult');
         
         // Enhanced drag and drop handling
         uploadArea.addEventListener('dragover', (e) => {
@@ -614,30 +578,24 @@ WEB_INTERFACE = """
             
             const formData = new FormData();
             formData.append('image', file);
-            
-            if (selectedLanguage !== 'auto') {
-                formData.append('language', selectedLanguage);
-            }
-            formData.append('audio_language', selectedAudioLanguage);
-            
-            // Debug FormData contents
-            console.log('FormData contents:');
-            for (let pair of formData.entries()) {
-                console.log(pair[0] + ': ' + (pair[1] instanceof File ? `File: ${pair[1].name}` : pair[1]));
-            }
+            formData.append('language', selectedLanguage);
+            formData.append('generate_email', document.getElementById('generateEmail').checked);
+            formData.append('patient_name', document.getElementById('patientName').value);
+            formData.append('patient_age', document.getElementById('patientAge').value);
+            formData.append('patient_email', document.getElementById('patientEmail').value);
+            formData.append('patient_phone', document.getElementById('patientPhone').value);
             
             hideMessages();
             loading.style.display = 'block';
             analyzeBtn.disabled = true;
             
             try {
-                const response = await fetch('/analyze', {
+                const response = await fetch('/analyze_with_email', {
                     method: 'POST',
                     body: formData
                 });
                 
                 console.log('Response status:', response.status);
-                console.log('Response headers:', response.headers);
                 
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
@@ -655,64 +613,34 @@ WEB_INTERFACE = """
                     // Display the text response
                     document.getElementById('resultText').textContent = data.text_response;
                     
-                    // Handle audio player with enhanced debugging
+                    // Handle audio player
                     const audio = document.getElementById('resultAudio');
                     if (data.audio_url) {
                         console.log('Audio URL received:', data.audio_url);
+                        audio.src = data.audio_url;
+                        audio.style.display = 'block';
                         
-                        // Show debug info
-                        audioDebug.innerHTML = `
-                            <strong>Audio Debug:</strong><br>
-                            URL: ${data.audio_url}<br>
-                            Language: ${data.audio_language || 'Not specified'}<br>
-                            Status: Loading...
-                        `;
-                        audioDebug.style.display = 'block';
+                        audio.onloadeddata = function() {
+                            console.log('Audio loaded successfully');
+                        };
                         
-                        // Test if URL is accessible first
-                        try {
-                            const testResponse = await fetch(data.audio_url, { method: 'HEAD' });
-                            console.log('Audio URL test response:', testResponse.status);
-                            
-                            if (testResponse.ok) {
-                                // Clear previous audio
-                                audio.src = '';
-                                audio.load();
-                                
-                                // Set new source
-                                audio.src = data.audio_url;
-                                
-                                audio.onloadeddata = function() {
-                                    console.log('Audio loaded successfully');
-                                    audio.style.display = 'block';
-                                    audioDebug.innerHTML += '<br>Status: ✅ Loaded successfully';
-                                };
-                                
-                                audio.onerror = function(e) {
-                                    console.error('Audio failed to load:', e);
-                                    console.error('Audio error details:', audio.error);
-                                    audio.style.display = 'none';
-                                    audioDebug.innerHTML += '<br>Status: ❌ Failed to load';
-                                };
-                                
-                                // Force load
-                                audio.load();
-                            } else {
-                                throw new Error(`Audio URL not accessible: ${testResponse.status}`);
-                            }
-                        } catch (urlError) {
-                            console.error('Audio URL test failed:', urlError);
-                            audioDebug.innerHTML += `<br>Status: ❌ URL test failed: ${urlError.message}`;
+                        audio.onerror = function(e) {
+                            console.error('Audio failed to load:', e);
                             audio.style.display = 'none';
-                        }
+                        };
+                        
+                        audio.load();
                     } else {
-                        console.log('No audio URL in response');
-                        audioDebug.innerHTML = '<strong>Audio Debug:</strong><br>Status: ❌ No audio URL provided';
-                        audioDebug.style.display = 'block';
                         audio.style.display = 'none';
                     }
                     
                     result.style.display = 'block';
+                    
+                    // Display email draft if generated
+                    if (data.email_draft) {
+                        displayEmailDraft(data.email_draft, data.urgency_level, data.appointment_timeframe);
+                    }
+                    
                     showSuccess('Analysis completed successfully!');
                 } else {
                     showError(uiTexts.error_prefix + ' ' + data.error);
@@ -726,6 +654,56 @@ WEB_INTERFACE = """
                 isSubmitting = false;
             }
         };
+        
+        function displayEmailDraft(emailDraft, urgencyLevel, appointmentTimeframe) {
+            const emailUrgency = document.getElementById('emailUrgency');
+            const emailSubject = document.getElementById('emailSubject');
+            const emailBody = document.getElementById('emailBody');
+            
+            // Set urgency indicator
+            const urgencyColors = {
+                'high': 'urgency-high',
+                'medium': 'urgency-medium',
+                'low': 'urgency-low',
+                'routine': 'urgency-routine'
+            };
+            
+            emailUrgency.className = `email-urgency ${urgencyColors[urgencyLevel] || 'urgency-low'}`;
+            emailUrgency.innerHTML = `
+                <strong>Urgency Level: ${urgencyLevel.toUpperCase()}</strong>
+                <br>Suggested appointment timeframe: ${appointmentTimeframe || 'As soon as possible'}
+            `;
+            
+            // Set email content
+            emailSubject.textContent = emailDraft.subject;
+            emailBody.value = emailDraft.body;
+            
+            emailResult.style.display = 'block';
+        }
+        
+        function copyEmailToClipboard() {
+            const subject = document.getElementById('emailSubject').textContent;
+            const body = document.getElementById('emailBody').value;
+            const fullEmail = `Subject: ${subject}\n\n${body}`;
+            
+            navigator.clipboard.writeText(fullEmail).then(() => {
+                showSuccess('Email copied to clipboard!');
+            });
+        }
+        
+        function downloadEmail() {
+            const subject = document.getElementById('emailSubject').textContent;
+            const body = document.getElementById('emailBody').value;
+            const fullEmail = `Subject: ${subject}\n\n${body}`;
+            
+            const blob = new Blob([fullEmail], { type: 'text/plain' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'doctor_consultation_email.txt';
+            a.click();
+            window.URL.revokeObjectURL(url);
+        }
         
         function showError(message) {
             error.textContent = message;
@@ -744,12 +722,11 @@ WEB_INTERFACE = """
             success.style.display = 'none';
             result.style.display = 'none';
             languageInfo.style.display = 'none';
-            audioDebug.style.display = 'none';
+            emailResult.style.display = 'none';
         }
         
         // Debug: Log when page loads
-        console.log('Page loaded, file input element:', fileInput);
-        console.log('Upload form element:', document.getElementById('uploadForm'));
+        console.log('Page loaded with selected language:', selectedLanguage);
     </script>
 </body>
 </html>
@@ -757,46 +734,30 @@ WEB_INTERFACE = """
 
 @app.route('/')
 def home():
-    """Enhanced web interface with audio language selection"""
-    ui_lang = get_ui_language()
-    audio_lang = get_audio_language()
-    ui_text = UI_TRANSLATIONS.get(ui_lang, UI_TRANSLATIONS['en-IN'])
+    """Enhanced web interface with email functionality"""
+    selected_lang = get_selected_language()
+    ui_text = UI_TRANSLATIONS.get(selected_lang, UI_TRANSLATIONS['hi-IN'])
     
     return render_template_string(WEB_INTERFACE, 
                                 ui_text=ui_text,
-                                current_ui_lang=ui_lang,
-                                current_audio_lang=audio_lang,
+                                current_language=selected_lang,
                                 audio_languages=AUDIO_LANGUAGES,
                                 ui_text_json=jsonify(ui_text).get_data(as_text=True))
 
-@app.route('/set_ui_language', methods=['POST'])
-def set_ui_language():
-    """Set UI language in session"""
+@app.route('/set_language', methods=['POST'])
+def set_language():
+    """Set unified language for both UI and audio"""
     data = request.get_json()
-    language = data.get('language', 'en-IN')
+    language = data.get('language', 'hi-IN')
     
-    if language == 'auto':
-        language = 'en-IN'
-    
-    session['ui_language'] = language
-    # If audio language is not set, default to UI language
-    if 'audio_language' not in session:
-        session['audio_language'] = language
+    session['selected_language'] = language
+    print(f"✅ Language set to: {language} (both UI and audio)")
     
     return jsonify({'success': True, 'language': language})
 
-@app.route('/set_audio_language', methods=['POST'])
-def set_audio_language():
-    """Set audio language in session"""
-    data = request.get_json()
-    language = data.get('language', get_ui_language())
-    
-    session['audio_language'] = language
-    return jsonify({'success': True, 'audio_language': language})
-
 @app.route('/analyze', methods=['POST'])
 def analyze_report():
-    """Analyze medical report with FIXED audio URL handling"""
+    """Analyze medical report with unified language handling"""
     try:
         print(f"Request method: {request.method}")
         print(f"Content type: {request.content_type}")
@@ -806,8 +767,8 @@ def analyze_report():
         # Check if file is in request
         if 'image' not in request.files:
             print("ERROR: 'image' not found in request.files")
-            ui_lang = get_ui_language()
-            error_msg = UI_TRANSLATIONS[ui_lang].get('no_file_error', 'No image uploaded')
+            selected_lang = get_selected_language()
+            error_msg = UI_TRANSLATIONS[selected_lang].get('no_file_error', 'No image uploaded')
             return jsonify({'success': False, 'error': error_msg})
         
         file = request.files['image']
@@ -816,8 +777,8 @@ def analyze_report():
         
         if file.filename == '':
             print("ERROR: Empty filename")
-            ui_lang = get_ui_language()
-            error_msg = UI_TRANSLATIONS[ui_lang].get('no_file_error', 'No file selected')
+            selected_lang = get_selected_language()
+            error_msg = UI_TRANSLATIONS[selected_lang].get('no_file_error', 'No file selected')
             return jsonify({'success': False, 'error': error_msg})
         
         # Read file content
@@ -827,38 +788,39 @@ def analyze_report():
         print(f"File content length: {len(file_content)} bytes")
         
         if len(file_content) == 0:
-            ui_lang = get_ui_language()
-            error_msg = UI_TRANSLATIONS[ui_lang].get('empty_file', 'Empty file uploaded')
+            selected_lang = get_selected_language()
+            error_msg = UI_TRANSLATIONS[selected_lang].get('empty_file', 'Empty file uploaded')
             return jsonify({'success': False, 'error': error_msg})
         
         # Check file size
         if len(file_content) > app.config['MAX_CONTENT_LENGTH']:
-            ui_lang = get_ui_language()
-            error_msg = UI_TRANSLATIONS[ui_lang].get('file_too_large', 'File too large')
+            selected_lang = get_selected_language()
+            error_msg = UI_TRANSLATIONS[selected_lang].get('file_too_large', 'File too large')
             return jsonify({'success': False, 'error': error_msg})
         
         # Create file hash for duplicate prevention
         file_hash = hashlib.md5(file_content).hexdigest()
         
         if file_hash in processing_files:
-            ui_lang = get_ui_language()
-            error_msg = UI_TRANSLATIONS[ui_lang].get('processing_error', 'File is already being processed')
+            selected_lang = get_selected_language()
+            error_msg = UI_TRANSLATIONS[selected_lang].get('processing_error', 'File is already being processed')
             return jsonify({'success': False, 'error': error_msg})
         
         processing_files.add(file_hash)
         
         try:
-            selected_language = request.form.get('language', 'en-IN')
-            audio_language = request.form.get('audio_language', get_audio_language())
+            # Use the same language for both UI and audio
+            selected_language = request.form.get('language', get_selected_language())
             
-            print(f"Processing with UI language: {selected_language}, Audio language: {audio_language}")
+            print(f"🔍 Processing with UNIFIED language: {selected_language}")
+            print(f"🔍 Both UI text and audio will use: {selected_language}")
             
             # Validate file type
             allowed_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.tiff'}
             file_ext = os.path.splitext(file.filename)[1].lower()
             if file_ext not in allowed_extensions:
-                ui_lang = get_ui_language()
-                error_msg = UI_TRANSLATIONS[ui_lang].get('invalid_file', 'Please upload only image files')
+                selected_lang = get_selected_language()
+                error_msg = UI_TRANSLATIONS[selected_lang].get('invalid_file', 'Please upload only image files')
                 return jsonify({'success': False, 'error': error_msg})
             
             # Save file temporarily
@@ -868,8 +830,12 @@ def analyze_report():
             
             print(f"Temporary file saved: {temp_file.name}")
             
-            # Process the report with audio language
-            result = orchestrator.process_medical_report(temp_file.name, selected_language, audio_language)
+            # Process with the same language for both text and audio
+            result = orchestrator.process_medical_report(
+                temp_file.name, 
+                user_language=selected_language,    # Same language for UI text
+                audio_language=selected_language    # Same language for audio
+            )
             
             # Clean up
             os.unlink(temp_file.name)
@@ -880,7 +846,7 @@ def analyze_report():
             if result['success']:
                 audio_url = None
                 
-                # FIXED: Enhanced audio file handling with proper URL generation
+                # Enhanced audio file handling with proper URL generation
                 if result.get('audio_file'):
                     print(f"Audio file path from orchestrator: {result['audio_file']}")
                     print(f"Audio file exists: {os.path.exists(result['audio_file'])}")
@@ -923,8 +889,8 @@ def analyze_report():
                     'detected_language': result.get('detected_language'),
                     'language_name': result.get('language_name'),
                     'text_response': result.get('text_response', ''),
-                    'audio_url': audio_url,  # This should now have a value if audio file exists
-                    'audio_language': audio_language
+                    'audio_url': audio_url,
+                    'language': selected_language  # Return the unified language
                 })
             else:
                 return jsonify({
@@ -944,7 +910,119 @@ def analyze_report():
             'error': f'System error: {str(e)}'
         })
 
-# REMOVED: The conflicting /static/audio/ route - Let Flask handle static files automatically
+@app.route('/analyze_with_email', methods=['POST'])
+def analyze_report_with_email():
+    """Analyze medical report and generate doctor consultation email"""
+    try:
+        # Similar file handling as analyze_report
+        if 'image' not in request.files:
+            return jsonify({'success': False, 'error': 'No image uploaded'})
+        
+        file = request.files['image']
+        if file.filename == '':
+            return jsonify({'success': False, 'error': 'No file selected'})
+        
+        # Get form data
+        selected_language = request.form.get('language', get_selected_language())
+        generate_email = request.form.get('generate_email', 'true').lower() == 'true'
+        
+        # Patient information for email
+        patient_info = {
+            'name': request.form.get('patient_name', ''),
+            'age': request.form.get('patient_age', ''),
+            'phone': request.form.get('patient_phone', ''),
+            'email': request.form.get('patient_email', '')
+        }
+        
+        # Process file (same as before)
+        file_content = file.read()
+        file_hash = hashlib.md5(file_content).hexdigest()
+        
+        if file_hash in processing_files:
+            return jsonify({'success': False, 'error': 'File is already being processed'})
+        
+        processing_files.add(file_hash)
+        
+        try:
+            # Save file temporarily
+            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
+            temp_file.write(file_content)
+            temp_file.close()
+            
+            # Process with email generation
+            result = orchestrator.process_medical_report_with_email(
+                temp_file.name, 
+                user_language=selected_language,
+                audio_language=selected_language,
+                generate_email=generate_email,
+                patient_info=patient_info if any(patient_info.values()) else None
+            )
+            
+            # Clean up
+            os.unlink(temp_file.name)
+            
+            if result['success']:
+                # Handle audio file (same as before)
+                audio_url = None
+                if result.get('audio_file'):
+                    audio_filename = os.path.basename(result['audio_file'])
+                    audio_url = f'/static/audio/{audio_filename}'
+                
+                response_data = {
+                    'success': True,
+                    'detected_language': result.get('detected_language'),
+                    'language_name': result.get('language_name'),
+                    'text_response': result.get('text_response', ''),
+                    'audio_url': audio_url,
+                    'language': selected_language
+                }
+                
+                # Add email data if generated
+                if 'email_draft' in result:
+                    response_data['email_draft'] = result['email_draft']
+                    response_data['urgency_level'] = result.get('urgency_level')
+                    response_data['appointment_timeframe'] = result.get('appointment_timeframe')
+                    
+                    if 'email_draft_translated' in result:
+                        response_data['email_draft_translated'] = result['email_draft_translated']
+                
+                return jsonify(response_data)
+            else:
+                return jsonify({'success': False, 'error': result.get('error', 'Processing failed')})
+        
+        finally:
+            processing_files.discard(file_hash)
+            
+    except Exception as e:
+        print(f"Analysis with email error: {e}")
+        return jsonify({'success': False, 'error': f'System error: {str(e)}'})
+
+@app.route('/send_email', methods=['POST'])
+def send_email():
+    """Send the drafted email to doctor (placeholder for email integration)"""
+    try:
+        data = request.get_json()
+        email_content = data.get('email_content')
+        doctor_email = data.get('doctor_email')
+        patient_email = data.get('patient_email')
+        
+        # Here you would integrate with your email service
+        # For now, return success with instructions
+        
+        return jsonify({
+            'success': True,
+            'message': 'Email draft prepared. Please copy and send to your doctor.',
+            'instructions': [
+                'Copy the email content below',
+                'Paste it into your email client',
+                'Add your doctor\'s email address',
+                'Review and customize as needed',
+                'Send the email'
+            ]
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
 
 @app.route('/debug_audio')
 def debug_audio():
@@ -969,34 +1047,6 @@ def debug_audio():
     
     return jsonify(debug_info)
 
-@app.route('/test_upload', methods=['GET', 'POST'])
-def test_upload():
-    """Simple test route for file upload debugging"""
-    if request.method == 'GET':
-        return '''
-        <!DOCTYPE html>
-        <html>
-        <head><title>File Upload Test</title></head>
-        <body>
-            <h2>File Upload Test</h2>
-            <form method="POST" enctype="multipart/form-data">
-                <input type="file" name="test_file" accept="image/*" required>
-                <input type="submit" value="Test Upload">
-            </form>
-        </body>
-        </html>
-        '''
-    
-    if 'test_file' not in request.files:
-        return "No file in request"
-    
-    file = request.files['test_file']
-    if file.filename == '':
-        return "No file selected"
-    
-    file_content = file.read()
-    return f"File received: {file.filename}, Size: {len(file_content)} bytes, Type: {file.content_type}"
-
 @app.route('/health')
 def health_check():
     """Health check endpoint"""
@@ -1007,17 +1057,10 @@ def health_check():
     })
 
 if __name__ == '__main__':
-    # Ensure directories exist with proper permissions
-    directories = ['static', 'static/audio', 'uploads', 'temp']
-    for directory in directories:
-        os.makedirs(directory, exist_ok=True)
-        print(f"Directory ensured: {os.path.abspath(directory)}")
-        # Set permissions on Unix systems
-        if os.name != 'nt':  # Not Windows
-            os.chmod(directory, 0o755)
-    
     print("Starting Flask application...")
     print(f"Static audio directory: {os.path.abspath('static/audio')}")
     
     # Run the application
     app.run(debug=True, host='0.0.0.0', port=5001)
+
+

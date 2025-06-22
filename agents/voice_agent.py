@@ -2,6 +2,7 @@ import os
 import time
 import uuid
 import re
+import json
 from utils.sarvam_client import SarvamClient
 
 class VoiceAgent:
@@ -42,6 +43,10 @@ class VoiceAgent:
             # Debug: Print the full analysis data structure
             if isinstance(analysis_data, dict):
                 print(f"🔍 Analysis data keys: {list(analysis_data.keys())}")
+                # Check for nested analysis
+                if 'analysis' in analysis_data:
+                    nested_analysis = analysis_data['analysis']
+                    print(f"🔍 Nested analysis keys: {list(nested_analysis.keys()) if isinstance(nested_analysis, dict) else 'Not a dict'}")
             
             # Use Flask app root path if available, otherwise use project path
             try:
@@ -65,7 +70,10 @@ class VoiceAgent:
             if os.name != 'nt':  # Not Windows
                 os.chmod(static_audio_dir, 0o755)
             
-            # Format speech text based on analysis data - CONCISE VERSION FOR AUDIO
+            # TEST TRANSLATION FIRST - ADDED FOR DEBUGGING
+            self.test_translation(language)
+            
+            # Format speech text based on analysis data - ALWAYS TRANSLATE IF NEEDED
             if not analysis_data.get('success'):
                 speech_text = self._get_error_speech(language)
                 print(f"🔍 Using error speech text")
@@ -150,39 +158,153 @@ class VoiceAgent:
             traceback.print_exc()
             return self.generate_fallback_audio(speech_text if 'speech_text' in locals() else "Audio generation failed", language)
     
+    # NEW METHOD: Translate analysis data for UI display
+    def translate_analysis_for_display(self, analysis_data, target_language):
+        """Translate analysis data for UI display"""
+        try:
+            print(f"🔍 === TRANSLATING ANALYSIS FOR UI DISPLAY ===")
+            print(f"🔍 Target language: {target_language}")
+            
+            if target_language == 'en-IN':
+                print(f"🔍 Target is English, returning original data")
+                return analysis_data  # No translation needed
+            
+            # Extract the detailed summary
+            english_summary = self._extract_english_summary(analysis_data)
+            if not english_summary:
+                print(f"🔍 No English summary found, returning original data")
+                return analysis_data
+            
+            print(f"🔍 Found English summary: {len(english_summary)} chars")
+            
+            # Translate using Sarvam
+            translated_summary = self._translate_with_sarvam(english_summary, target_language)
+            
+            # Create a deep copy of the analysis data
+            translated_data = self._deep_copy_dict(analysis_data)
+            
+            # Update the analysis data with translated content
+            self._update_analysis_with_translation(translated_data, translated_summary)
+            
+            print(f"✅ Analysis data translated for UI display")
+            return translated_data
+            
+        except Exception as e:
+            print(f"❌ Error translating analysis for display: {e}")
+            import traceback
+            traceback.print_exc()
+            return analysis_data
+    
+    def _deep_copy_dict(self, original_dict):
+        """Create a deep copy of a dictionary"""
+        try:
+            import copy
+            return copy.deepcopy(original_dict)
+        except:
+            # Fallback manual copy
+            if isinstance(original_dict, dict):
+                new_dict = {}
+                for key, value in original_dict.items():
+                    if isinstance(value, dict):
+                        new_dict[key] = self._deep_copy_dict(value)
+                    elif isinstance(value, list):
+                        new_dict[key] = value.copy()
+                    else:
+                        new_dict[key] = value
+                return new_dict
+            return original_dict
+    
+    def _update_analysis_with_translation(self, analysis_data, translated_text):
+        """Update analysis data with translated text"""
+        try:
+            # Update nested analysis if it exists
+            if 'analysis' in analysis_data and isinstance(analysis_data['analysis'], dict):
+                if 'summary' in analysis_data['analysis']:
+                    analysis_data['analysis']['summary'] = translated_text
+                if 'comprehensive_analysis' in analysis_data['analysis']:
+                    analysis_data['analysis']['comprehensive_analysis'] = translated_text
+                if 'detailed_summary' in analysis_data['analysis']:
+                    analysis_data['analysis']['detailed_summary'] = translated_text
+            
+            # Update top-level fields
+            if 'summary' in analysis_data:
+                analysis_data['summary'] = translated_text
+            if 'comprehensive_analysis' in analysis_data:
+                analysis_data['comprehensive_analysis'] = translated_text
+            if 'detailed_summary' in analysis_data:
+                analysis_data['detailed_summary'] = translated_text
+                
+        except Exception as e:
+            print(f"❌ Error updating analysis with translation: {e}")
+    
+    def test_translation(self, target_language):
+        """Test translation with simple text - ADDED FOR DEBUGGING"""
+        if target_language == 'en-IN':
+            print(f"🔍 Target is English, skipping translation test")
+            return
+            
+        test_text = "Hello, this is a test message."
+        print(f"🔍 Testing translation to {target_language}")
+        print(f"🔍 Test input: {test_text}")
+        
+        try:
+            result = self.sarvam_client.translate(
+                text=test_text,
+                source_language_code='en-IN',
+                target_language_code=target_language
+            )
+            
+            print(f"🔍 Test translation result: {result}")
+            print(f"🔍 Test result type: {type(result)}")
+            print(f"🔍 Test result success: {result.get('success') if result else 'No result'}")
+            
+            if result and result.get('success'):
+                translated = result.get('translated_text', test_text)
+                print(f"✅ Test translation successful!")
+                print(f"🔍 Original: {test_text}")
+                print(f"🔍 Translated: {translated}")
+                
+                if translated == test_text:
+                    print(f"⚠️ WARNING: Test translation returned same text - translation may not be working!")
+            else:
+                print(f"❌ Test translation failed: {result.get('error') if result else 'No result'}")
+                
+        except Exception as e:
+            print(f"❌ Test translation exception: {e}")
+            import traceback
+            traceback.print_exc()
+    
     def _format_for_speech(self, analysis_data, language):
-        """Format analysis data for speech synthesis - CONCISE VERSION FOR SARVAM 500 CHAR LIMIT"""
+        """Format analysis data for speech synthesis - ENHANCED WITH DEBUGGING"""
         try:
             print(f"🔍 === _format_for_speech DEBUG START ===")
+            print(f"🔍 Target language: {language}")
             
             if not analysis_data.get('success'):
                 print(f"🔍 Analysis not successful, returning error speech")
                 return self._get_error_speech(language)
             
-            print(f"🔍 Analysis data type: {type(analysis_data)}")
-            print(f"🔍 Analysis data keys: {list(analysis_data.keys()) if isinstance(analysis_data, dict) else 'Not a dict'}")
+            # STEP 1: Get the English summary (source content)
+            english_summary = self._extract_english_summary(analysis_data)
             
-            # CREATE CONCISE AUDIO SUMMARY FOR TTS
-            speech_content = self._create_concise_audio_summary(analysis_data)
+            if not english_summary or len(english_summary.strip()) < 50:
+                print(f"🔍 No suitable English summary found, using fallback")
+                return self._get_error_speech(language)
             
-            # Clean up the content for speech
-            if speech_content:
-                speech_text = self._clean_text_for_speech(speech_content)
-                print(f"🔍 Cleaned speech text length: {len(speech_text)}")
-            else:
-                speech_text = "Medical analysis completed. Please consult with your doctor."
-                print(f"🔍 Using fallback content")
+            print(f"🔍 English summary length: {len(english_summary)}")
+            print(f"🔍 English summary preview: {english_summary[:200]}...")
             
-            # ENSURE IT FITS SARVAM 500 CHARACTER LIMIT
-            if len(speech_text) > 450:  # Leave buffer for safety
-                speech_text = speech_text[:447] + "..."
-                print(f"🔍 Truncated speech text to fit 500 character limit")
+            # STEP 2: If target language is English, use directly
+            if language == 'en-IN':
+                print(f"🔍 Target language is English, using summary directly")
+                speech_content = self._make_concise_for_tts(english_summary, language)
+                return self._finalize_speech_text(speech_content)
             
-            print(f"🔍 Final speech text length: {len(speech_text)} characters")
-            print(f"🔍 Final speech text preview: {speech_text}")
-            print(f"🔍 === _format_for_speech DEBUG END ===")
-            
-            return speech_text
+            # STEP 3: For other languages, ALWAYS translate using Sarvam-Translate
+            print(f"🔍 Translating English summary to {language} using Sarvam-Translate")
+            translated_text = self._translate_with_sarvam(english_summary, language)
+            speech_content = self._make_concise_for_tts(translated_text, language)
+            return self._finalize_speech_text(speech_content)
             
         except Exception as e:
             print(f"❌ Error formatting speech text: {e}")
@@ -190,130 +312,356 @@ class VoiceAgent:
             traceback.print_exc()
             return self._get_error_speech(language)
     
-    def _create_concise_audio_summary(self, analysis_data):
-        """Create a concise audio summary that fits within 500 characters"""
+    def _extract_english_summary(self, analysis_data):
+        """Extract English summary from analysis data"""
         try:
-            # Get basic data
-            structured_data = analysis_data.get('structured_data', {})
-            test_results = structured_data.get('test_results', [])
-            normal_count = analysis_data.get('normal_count', 0)
-            concerning_count = analysis_data.get('concerning_count', 0)
+            # Check nested analysis first
+            nested_analysis = analysis_data.get('analysis', {})
+            if nested_analysis:
+                summary = nested_analysis.get('summary', '')
+                if summary and len(summary.strip()) > 50:
+                    return summary
+                
+                comprehensive = nested_analysis.get('comprehensive_analysis', '')
+                if comprehensive and len(comprehensive.strip()) > 50:
+                    return comprehensive
+                    
+                detailed = nested_analysis.get('detailed_summary', '')
+                if detailed and len(detailed.strip()) > 50:
+                    return detailed
             
-            # Build concise summary
-            summary_parts = []
+            # Check top-level
+            summary = analysis_data.get('summary', '')
+            if summary and len(summary.strip()) > 50:
+                return summary
             
-            # Introduction
-            if test_results:
-                summary_parts.append(f"Your medical report shows {len(test_results)} test results.")
+            comprehensive = analysis_data.get('comprehensive_analysis', '')
+            if comprehensive and len(comprehensive.strip()) > 50:
+                return comprehensive
+                
+            detailed = analysis_data.get('detailed_summary', '')
+            if detailed and len(detailed.strip()) > 50:
+                return detailed
             
-            # Overall health status
-            if concerning_count == 0:
-                summary_parts.append("All results are in healthy ranges.")
-            elif concerning_count == 1:
-                summary_parts.append(f"{normal_count} results are healthy, 1 needs attention.")
-            else:
-                summary_parts.append(f"{normal_count} results are healthy, {concerning_count} need attention.")
-            
-            # Key recommendations
-            recommendations = analysis_data.get('recommendations', [])
-            if recommendations:
-                # Pick the most important recommendation
-                key_rec = recommendations[0] if recommendations[0] != "This test shows how your body is working." else "Maintain healthy lifestyle habits."
-                summary_parts.append(f"Key advice: {key_rec}")
-            
-            # Doctor consultation reminder
-            summary_parts.append("Always consult your doctor before making health changes.")
-            
-            # Join and return
-            concise_summary = " ".join(summary_parts)
-            
-            print(f"🔍 Concise summary created: {len(concise_summary)} characters")
-            print(f"🔍 Concise summary: {concise_summary}")
-            
-            return concise_summary
+            return ""
             
         except Exception as e:
-            print(f"❌ Error creating concise summary: {e}")
-            return "Medical analysis completed. Please consult with your doctor for detailed information."
-
-    def _clean_text_for_speech(self, text):
-        """Clean text to make it more suitable for speech synthesis"""
-        if not text:
-            return "Medical analysis completed."
-        
-        # Remove markdown formatting
-        text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)  # Remove bold
-        text = re.sub(r'\*(.*?)\*', r'\1', text)      # Remove italic
-        text = re.sub(r'#{1,6}\s*', '', text)         # Remove headers
-        text = re.sub(r'📋|📊|💡|⚠️|❌|✅|🔍', '', text)  # Remove emojis
-        
-        # Replace bullet points with spoken equivalents
-        text = re.sub(r'•\s*', '', text)  # Remove bullet points for concise version
-        text = re.sub(r'-\s*', '', text)
-        text = re.sub(r'\d+\.\s*', '', text)
-        
-        # Clean up extra whitespace and line breaks
-        text = re.sub(r'\n+', '. ', text)
-        text = re.sub(r'\s+', ' ', text)
-        
-        # Remove any remaining special characters that might cause TTS issues
-        text = re.sub(r'[^\w\s.,!?;:()\'-]', '', text)
-        
-        return text.strip()
+            print(f"❌ Error extracting English summary: {e}")
+            return ""
     
-    def generate_fallback_audio(self, text, language):
-        """Generate simple fallback audio for testing"""
+    def _translate_with_sarvam(self, english_text, target_language):
+        """Translate English text to target language using Sarvam-Translate - ENHANCED WITH DEBUGGING"""
         try:
-            print(f"🔍 Generating fallback audio for {language}")
+            print(f"🔍 Translating with Sarvam: {len(english_text)} chars to {target_language}")
+            print(f"🔍 Input text: {english_text[:100]}...")
+            print(f"🔍 Source language: 'en-IN'")
+            print(f"🔍 Target language: '{target_language}'")
+            print(f"🔍 Supported languages: {list(self.voice_profiles.keys())}")
             
-            # Use Hindi with 'meera' speaker as fallback (most reliable)
-            fallback_language = 'hi-IN'
-            fallback_speaker = 'meera'
+            if target_language == 'en-IN':
+                print(f"🔍 Target is English, returning original text")
+                return english_text
             
-            # Create very short fallback text
-            fallback_text = "Medical report analysis completed. Please consult with your doctor."
+            # Handle long text by chunking
+            if len(english_text) > 800:
+                return self._translate_long_text(english_text, target_language)
             
-            print(f"🔍 Fallback: {fallback_language} with {fallback_speaker}")
-            print(f"🔍 Fallback text: {fallback_text}")
+            # Test Sarvam connection first
+            try:
+                connection_test = self.sarvam_client.test_connection()
+                print(f"🔍 Sarvam connection test: {connection_test}")
+            except:
+                print(f"⚠️ Could not test Sarvam connection")
             
-            # Try with fallback settings
-            audio_data = self.sarvam_client.text_to_speech(
-                fallback_text,
-                fallback_language,
-                speaker=fallback_speaker
+            # Use Sarvam client to translate
+            result = self.sarvam_client.translate(
+                text=english_text,
+                source_language_code='en-IN',
+                target_language_code=target_language
             )
             
-            if audio_data:
-                # Use project path for fallback
-                project_root = '/Users/nikhilnedungadi/Desktop/NIKHIL/projects/warpspeed/swasthbharat'
-                static_audio_dir = os.path.join(project_root, 'static', 'audio')
-                os.makedirs(static_audio_dir, exist_ok=True)
-                
-                timestamp = int(time.time())
-                audio_filename = f"fallback_{timestamp}.wav"
-                audio_path = os.path.join(static_audio_dir, audio_filename)
-                
-                with open(audio_path, 'wb') as f:
-                    f.write(audio_data)
-                
-                if os.path.exists(audio_path) and os.path.getsize(audio_path) > 0:
-                    print(f"✅ Fallback audio generated: {audio_path}")
-                    return audio_path
-                    
-        except Exception as e:
-            print(f"❌ Fallback audio generation failed: {e}")
+            print(f"🔍 Sarvam translation result: {result}")
+            print(f"🔍 Result type: {type(result)}")
+            print(f"🔍 Result success: {result.get('success') if result else 'No result'}")
             
-        return None
+            if result and result.get('success'):
+                translated_text = result.get('translated_text', english_text)
+                print(f"✅ Translation successful!")
+                print(f"🔍 Original length: {len(english_text)}")
+                print(f"🔍 Translated length: {len(translated_text)}")
+                print(f"🔍 Translated preview: {translated_text[:200]}...")
+                
+                # Verify translation actually happened
+                if translated_text != english_text:
+                    return translated_text
+                else:
+                    print(f"⚠️ Translation returned same text - using fallback")
+                    return self._get_fallback_translation(english_text, target_language)
+            else:
+                print(f"❌ Translation failed: {result.get('error') if result else 'No result'}")
+                return self._get_fallback_translation(english_text, target_language)
+            
+        except Exception as e:
+            print(f"❌ Translation error: {e}")
+            import traceback
+            traceback.print_exc()
+            return self._get_fallback_translation(english_text, target_language)
     
-    def _get_error_speech(self, language):
-        """Get error message for speech in specified language - CONCISE VERSION"""
-        error_messages = {
-            'hi-IN': 'रिपोर्ट का विश्लेषण पूरा हो गया है। डॉक्टर से सलाह लें।',
-            'en-IN': 'Report analysis completed. Please consult your doctor.',
-            'ta-IN': 'அறிக்கை பகுப்பாய்வு முடிந்தது. மருத்துவரை அணுகவும்.',
-            'te-IN': 'రిపోర్ట్ విశ్లేషణ పూర్తయింది. వైద్యుడిని సంప్రదించండి.',
-            'kn-IN': 'ವರದಿ ವಿಶ್ಲೇಷಣೆ ಪೂರ್ಣಗೊಂಡಿದೆ. ವೈದ್ಯರನ್ನು ಸಂಪರ್ಕಿಸಿ.',
-            'ml-IN': 'റിപ്പോർട്ട് വിശകലനം പൂർത്തിയായി. ഡോക്ടറെ സമീപിക്കുക.',
+    def _translate_long_text(self, text, target_language):
+        """Translate long text by chunking"""
+        try:
+            print(f"🔍 Translating long text: {len(text)} chars")
+            
+            # Split text into sentences
+            sentences = re.split(r'[.!?]+', text)
+            translated_sentences = []
+            
+            current_chunk = ""
+            for sentence in sentences:
+                if len(current_chunk + sentence) < 700:
+                    current_chunk += sentence + ". "
+                else:
+                    if current_chunk:
+                        translated_chunk = self._translate_with_sarvam(current_chunk, target_language)
+                        translated_sentences.append(translated_chunk)
+                    current_chunk = sentence + ". "
+            
+            # Translate remaining chunk
+            if current_chunk:
+                translated_chunk = self._translate_with_sarvam(current_chunk, target_language)
+                translated_sentences.append(translated_chunk)
+            
+            return " ".join(translated_sentences)
+            
+        except Exception as e:
+            print(f"❌ Error translating long text: {e}")
+            return text
+    
+    def _get_fallback_translation(self, text, target_language):
+        """Provide fallback translations for common phrases"""
+        fallback_translations = {
+            'hi-IN': {
+                'Keep eating healthy foods like you are doing': 'जैसा आप कर रहे हैं वैसे ही स्वस्थ भोजन खाते रहें',
+                'Eat more fruits and vegetables every day': 'रोज फल और सब्जियां खाएं',
+                'This test shows how your body is working': 'यह जांच दिखाती है कि आपका शरीर कैसे काम कर रहा है',
+                'Your health report shows': 'आपकी स्वास्थ्य रिपोर्ट दिखाती है',
+                'Hello! I have analyzed your medical report': 'नमस्ते! मैंने आपकी मेडिकल रिपोर्ट का विश्लेषण किया है'
+            },
+            'ta-IN': {
+                'Keep eating healthy foods like you are doing': 'நீங்கள் செய்வது போல் ஆரோக்கியமான உணவுகளை தொடர்ந்து சாப்பிடுங்கள்',
+                'Eat more fruits and vegetables every day': 'தினமும் அதிக பழங்கள் மற்றும் காய்கறிகள் சாப்பிடுங்கள்',
+                'This test shows how your body is working': 'இந்த பரிசோதனை உங்கள் உடல் எப்படி வேலை செய்கிறது என்பதைக் காட்டுகிறது',
+                'Your health report shows': 'உங்கள் சுகாதார அறிக்கை காட்டுகிறது',
+                'Hello! I have analyzed your medical report': 'வணக்கம்! நான் உங்கள் மருத்துவ அறிக்கையை பகுப்பாய்வு செய்துள்ளேன்'
+            }
         }
         
+        lang_dict = fallback_translations.get(target_language, {})
+        return lang_dict.get(text, text)
+    
+    def _make_concise_for_tts(self, text, language):
+        """Make text more concise for TTS - limit to key points"""
+        try:
+            # Remove very long sentences and keep only essential information
+            sentences = re.split(r'[.!?]+', text)
+            
+            # Keep first few sentences and most important ones
+            important_sentences = []
+            for sentence in sentences[:10]:  # Limit to first 10 sentences
+                if len(sentence.strip()) > 10:
+                    important_sentences.append(sentence.strip())
+            
+            concise_text = '. '.join(important_sentences[:8])  # Max 8 sentences
+            
+            # Ensure it's not too long for TTS
+            if len(concise_text) > 1000:
+                concise_text = concise_text[:1000]
+                # Find last complete sentence
+                last_period = concise_text.rfind('.')
+                if last_period > 500:
+                    concise_text = concise_text[:last_period + 1]
+            
+            return concise_text
+            
+        except Exception as e:
+            print(f"❌ Error making text concise: {e}")
+            return text[:800]  # Fallback to first 800 chars
+    
+    def _finalize_speech_text(self, text):
+        """Finalize speech text with proper formatting"""
+        try:
+            # Clean up the text
+            text = re.sub(r'\s+', ' ', text)  # Remove extra whitespace
+            text = text.strip()
+            
+            # Ensure it ends with proper punctuation
+            if not text.endswith(('.', '!', '?')):
+                text += '.'
+            
+            return text
+            
+        except Exception as e:
+            print(f"❌ Error finalizing speech text: {e}")
+            return text
+    
+    def _get_error_speech(self, language):
+        """Get error message for speech in specified language"""
+        error_messages = {
+            'en-IN': "I'm sorry, I couldn't analyze your medical report properly. Please try uploading the image again or consult with your healthcare provider.",
+            'hi-IN': "मुझे खुशी है कि मैं आपकी मेडिकल रिपोर्ट का सही विश्लेषण नहीं कर सका। कृपया छवि को फिर से अपलोड करें या अपने डॉक्टर से सलाह लें।",
+            'ta-IN': "மன்னிக்கவும், உங்கள் மருத்துவ அறிக்கையை சரியாக பகுப்பாய்வு செய்ய முடியவில்லை। படத்தை மீண்டும் பதிவேற்றவும் அல்லது உங்கள் மருத்துவரை அணுகவும்।"
+        }
         return error_messages.get(language, error_messages['en-IN'])
+    
+    def generate_fallback_audio(self, text, language):
+        """Generate fallback audio when main TTS fails"""
+        try:
+            print(f"🔍 Generating fallback audio for language: {language}")
+            
+            # Try with different speaker
+            fallback_speakers = ['meera', 'arvind', 'diya']
+            
+            for speaker in fallback_speakers:
+                try:
+                    print(f"🔍 Trying fallback speaker: {speaker}")
+                    audio_data = self.sarvam_client.text_to_speech(
+                        text[:500],  # Shorter text
+                        language,
+                        speaker=speaker
+                    )
+                    
+                    if audio_data:
+                        # Save fallback audio
+                        timestamp = int(time.time())
+                        audio_filename = f"fallback_{timestamp}_{uuid.uuid4().hex[:8]}.wav"
+                        
+                        try:
+                            from flask import current_app
+                            static_audio_dir = os.path.join(current_app.root_path, 'static', 'audio')
+                        except:
+                            project_root = '/Users/nikhilnedungadi/Desktop/NIKHIL/projects/warpspeed/swasthbharat'
+                            static_audio_dir = os.path.join(project_root, 'static', 'audio')
+                        
+                        audio_path = os.path.join(static_audio_dir, audio_filename)
+                        
+                        with open(audio_path, 'wb') as f:
+                            f.write(audio_data)
+                        
+                        if os.path.exists(audio_path) and os.path.getsize(audio_path) > 0:
+                            print(f"✅ Fallback audio generated: {audio_path}")
+                            return audio_path
+                            
+                except Exception as speaker_error:
+                    print(f"❌ Fallback speaker {speaker} failed: {speaker_error}")
+                    continue
+            
+            print(f"❌ All fallback speakers failed")
+            return None
+            
+        except Exception as e:
+            print(f"❌ Error generating fallback audio: {e}")
+            return None
+    
+    def get_supported_languages(self):
+        """Get list of supported languages"""
+        return list(self.voice_profiles.keys())
+    
+    def get_language_name(self, language_code):
+        """Get human-readable language name"""
+        language_names = {
+            'hi-IN': 'Hindi',
+            'en-IN': 'English',
+            'ta-IN': 'Tamil',
+            'te-IN': 'Telugu',
+            'kn-IN': 'Kannada',
+            'ml-IN': 'Malayalam',
+            'gu-IN': 'Gujarati',
+            'mr-IN': 'Marathi',
+            'bn-IN': 'Bengali',
+            'or-IN': 'Odia',
+            'pa-IN': 'Punjabi'
+        }
+        return language_names.get(language_code, language_code)
+    
+    def validate_language(self, language_code):
+        """Validate if language is supported"""
+        return language_code in self.voice_profiles
+    
+    def debug_translation_status(self, language='hi-IN'):
+        """Debug method to check translation status and capabilities"""
+        try:
+            print(f"🔍 === TRANSLATION DEBUG STATUS ===")
+            print(f"🔍 Target language: {language}")
+            print(f"🔍 Supported languages: {list(self.voice_profiles.keys())}")
+            print(f"🔍 Language validation: {self.validate_language(language)}")
+            
+            # Test Sarvam client connection
+            try:
+                if hasattr(self.sarvam_client, 'test_connection'):
+                    connection_status = self.sarvam_client.test_connection()
+                    print(f"🔍 Sarvam connection: {connection_status}")
+                else:
+                    print(f"🔍 Sarvam connection: test_connection method not available")
+            except Exception as conn_error:
+                print(f"❌ Sarvam connection error: {conn_error}")
+            
+            # Test simple translation
+            if language != 'en-IN':
+                test_result = self.test_translation(language)
+                print(f"🔍 Translation test completed")
+            else:
+                print(f"🔍 Target is English, skipping translation test")
+            
+            # Check voice profile
+            speaker = self.voice_profiles.get(language, 'meera')
+            print(f"🔍 Selected speaker: {speaker}")
+            print(f"🔍 Speaker validation: {speaker in self.allowed_speakers}")
+            
+            return {
+                'language': language,
+                'supported': self.validate_language(language),
+                'speaker': speaker,
+                'speaker_valid': speaker in self.allowed_speakers,
+                'sarvam_available': hasattr(self, 'sarvam_client') and self.sarvam_client is not None
+            }
+            
+        except Exception as e:
+            print(f"❌ Debug translation status error: {e}")
+            import traceback
+            traceback.print_exc()
+            return {
+                'error': str(e),
+                'language': language,
+                'supported': False
+            }
+    
+    def cleanup_old_audio_files(self, max_age_hours=24):
+        """Clean up old audio files to save space"""
+        try:
+            try:
+                from flask import current_app
+                static_audio_dir = os.path.join(current_app.root_path, 'static', 'audio')
+            except:
+                project_root = '/Users/nikhilnedungadi/Desktop/NIKHIL/projects/warpspeed/swasthbharat'
+                static_audio_dir = os.path.join(project_root, 'static', 'audio')
+            
+            if not os.path.exists(static_audio_dir):
+                return
+            
+            current_time = time.time()
+            max_age_seconds = max_age_hours * 3600
+            
+            for filename in os.listdir(static_audio_dir):
+                if filename.endswith('.wav'):
+                    file_path = os.path.join(static_audio_dir, filename)
+                    file_age = current_time - os.path.getctime(file_path)
+                    
+                    if file_age > max_age_seconds:
+                        try:
+                            os.remove(file_path)
+                            print(f"🗑️ Cleaned up old audio file: {filename}")
+                        except:
+                            pass
+                            
+        except Exception as e:
+            print(f"❌ Error cleaning up audio files: {e}")

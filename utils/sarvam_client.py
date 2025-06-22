@@ -14,27 +14,40 @@ class SarvamClient:
             print("⚠️ WARNING: SARVAM_API_KEY not found in environment variables")
         else:
             print(f"✅ Sarvam API key loaded: {self.api_key[:10]}...")
-        
-    def translate_text(self, text, target_language='hi-IN'):
-        """Translate text using Sarvam Translate API with enhanced error handling"""
+    
+    def translate(self, text, source_language_code="en-IN", target_language_code="hi-IN"):
+        """Translate text using Sarvam-Translate (Mayura) API with CORRECTED parameters"""
         if not self.api_key:
             print("❌ SARVAM CLIENT: API key not found")
-            return text
+            return {
+                'success': False,
+                'error': 'API key not found',
+                'translated_text': text
+            }
             
         if not text or len(text.strip()) == 0:
             print("⚠️ SARVAM CLIENT: Empty text provided for translation")
-            return text
-            
+            return {
+                'success': True,
+                'translated_text': text,
+                'source_language_code': source_language_code,
+                'target_language_code': target_language_code
+            }
+        
+        # Use the correct Sarvam Translate endpoint
         url = f"{self.base_url}/translate"
         
+        # CORRECTED payload for Sarvam-Translate (Mayura v1)
         payload = {
             "input": text,
-            "source_language_code": "en-IN",
-            "target_language_code": target_language,
+            "source_language_code": source_language_code,
+            "target_language_code": target_language_code,
             "speaker_gender": "Female",
             "mode": "formal",
             "model": "mayura:v1",
-            "enable_preprocessing": True
+            "enable_preprocessing": True,
+            "output_script": "fully-native",  # FIXED: Changed from "native" to "fully-native"
+            "numerals_format": "international"  # FIXED: Changed from "native" to "international"
         }
         
         headers = {
@@ -43,19 +56,68 @@ class SarvamClient:
         }
         
         try:
-            print(f"🔍 SARVAM CLIENT: Translating {len(text)} characters to {target_language}")
-            response = requests.post(url, json=payload, headers=headers)
+            print(f"🔍 SARVAM CLIENT: Translating {len(text)} characters from {source_language_code} to {target_language_code}")
+            print(f"🔍 SARVAM CLIENT: Text preview: {text[:100]}...")
+            
+            response = requests.post(url, json=payload, headers=headers, timeout=30)
+            
+            print(f"🔍 SARVAM CLIENT: Response status: {response.status_code}")
             
             if response.status_code == 200:
                 result = response.json()
+                print(f"🔍 SARVAM CLIENT: Response: {result}")
+                
                 translated_text = result.get('translated_text', text)
+                source_detected = result.get('source_language_code', source_language_code)
+                
                 print(f"✅ SARVAM CLIENT: Translation successful")
-                return translated_text
+                print(f"🔍 SARVAM CLIENT: Original: {text[:100]}...")
+                print(f"🔍 SARVAM CLIENT: Translated: {translated_text[:100]}...")
+                
+                return {
+                    'success': True,
+                    'translated_text': translated_text,
+                    'source_language_code': source_detected,
+                    'target_language_code': target_language_code
+                }
             else:
-                print(f"❌ SARVAM CLIENT: Translation error: {response.status_code} - {response.text}")
-                return text
+                error_text = response.text
+                print(f"❌ SARVAM CLIENT: Translation error: {response.status_code}")
+                print(f"❌ SARVAM CLIENT: Error response: {error_text}")
+                
+                return {
+                    'success': False,
+                    'error': f"HTTP {response.status_code}: {error_text}",
+                    'translated_text': text,
+                    'source_language_code': source_language_code,
+                    'target_language_code': target_language_code
+                }
+                
+        except requests.exceptions.Timeout:
+            print(f"❌ SARVAM CLIENT: Translation timeout")
+            return {
+                'success': False,
+                'error': 'Translation request timed out',
+                'translated_text': text,
+                'source_language_code': source_language_code,
+                'target_language_code': target_language_code
+            }
         except Exception as e:
             print(f"❌ SARVAM CLIENT: Translation exception: {e}")
+            return {
+                'success': False,
+                'error': str(e),
+                'translated_text': text,
+                'source_language_code': source_language_code,
+                'target_language_code': target_language_code
+            }
+    
+    def translate_text(self, text, target_language='hi-IN'):
+        """Legacy method for backward compatibility"""
+        result = self.translate(text, "en-IN", target_language)
+        if result.get('success'):
+            return result.get('translated_text', text)
+        else:
             return text
     
     def text_to_speech(self, text, language='hi-IN', speaker='meera'):
@@ -67,11 +129,11 @@ class SarvamClient:
         if not text or len(text.strip()) == 0:
             print("⚠️ SARVAM CLIENT: Empty text provided for TTS")
             return None
-            
-        # Limit text length for TTS
-        if len(text) > 1000:
-            text = text[:997] + "..."
-            print(f"⚠️ SARVAM CLIENT: Text truncated to 1000 characters for TTS")
+        
+        # Limit text length for TTS - Sarvam has a 500 character limit
+        if len(text) > 500:
+            text = text[:497] + "..."
+            print(f"⚠️ SARVAM CLIENT: Text truncated to 500 characters for TTS")
             
         url = f"{self.base_url}/text-to-speech"
         
@@ -97,7 +159,7 @@ class SarvamClient:
             print(f"🔍 SARVAM CLIENT: Language: {language}, Speaker: {speaker}")
             print(f"🔍 SARVAM CLIENT: Text preview: {text[:100]}...")
             
-            response = requests.post(url, json=payload, headers=headers)
+            response = requests.post(url, json=payload, headers=headers, timeout=30)
             
             if response.status_code == 200:
                 result = response.json()
@@ -126,9 +188,9 @@ class SarvamClient:
         
         # Test with a simple translation
         test_text = "Hello, this is a test."
-        result = self.translate_text(test_text, 'hi-IN')
+        result = self.translate(test_text, 'en-IN', 'hi-IN')
         
-        if result != test_text:
+        if result.get('success') and result.get('translated_text') != test_text:
             return True, "Connection successful"
         else:
-            return False, "Translation failed"
+            return False, f"Translation test failed: {result.get('error', 'Unknown error')}"
