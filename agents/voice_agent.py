@@ -84,6 +84,10 @@ class VoiceAgent:
             print(f"🔍 Speech text length: {len(speech_text)}")
             print(f"🔍 Speech text preview: {speech_text[:200]}...")
             
+            # Validate and clean text for TTS - INCREASED LENGTH LIMIT
+            speech_text = self._validate_text_for_tts(speech_text, max_length=800)  # Increased from 600
+            print(f"🔍 Validated speech text length: {len(speech_text)}")
+            
             # Get the correct speaker for the language
             speaker = self.voice_profiles.get(language, 'meera')
             print(f"🔍 Initial speaker selection: {speaker} for language: {language}")
@@ -95,22 +99,47 @@ class VoiceAgent:
             
             print(f"🔍 Final speaker: {speaker}")
             
-            # Generate audio using Sarvam TTS
+            # Generate audio using Sarvam TTS with timeout handling
             print(f"🔍 Calling Sarvam TTS...")
-            try:
-                audio_data = self.sarvam_client.text_to_speech(
-                    speech_text,
-                    language,
-                    speaker=speaker
-                )
-                print(f"🔍 Audio data received: {type(audio_data)}")
-                print(f"🔍 Audio data length: {len(audio_data) if audio_data else 'None'}")
-            except Exception as tts_error:
-                print(f"❌ Sarvam TTS error: {tts_error}")
-                # Try fallback audio generation
-                return self.generate_fallback_audio(speech_text, language)
+            audio_data = None
+            max_retries = 2
+            retry_count = 0
             
-            if audio_data:
+            while retry_count < max_retries:
+                try:
+                    # Ensure text is not too long before TTS call - INCREASED LIMIT
+                    if len(speech_text) > 1000:  # Increased from 800
+                        speech_text = speech_text[:1000]
+                        last_period = speech_text.rfind('.')
+                        if last_period > 500:  # Increased from 400
+                            speech_text = speech_text[:last_period + 1]
+                    
+                    print(f"🔍 Final speech text length: {len(speech_text)}")
+                    
+                    audio_data = self.sarvam_client.text_to_speech(
+                        speech_text,
+                        language,
+                        speaker=speaker
+                    )
+                    
+                    if audio_data and len(audio_data) > 1000:  # Ensure we got substantial audio data
+                        print(f"🔍 Audio data received: {len(audio_data)} bytes")
+                        break
+                    else:
+                        print(f"⚠️ Insufficient audio data, retrying...")
+                        retry_count += 1
+                        if retry_count < max_retries:
+                            time.sleep(1)  # Brief delay before retry
+                        
+                except Exception as tts_error:
+                    print(f"❌ Sarvam TTS error (attempt {retry_count + 1}): {tts_error}")
+                    retry_count += 1
+                    if retry_count < max_retries:
+                        time.sleep(1)
+                    else:
+                        return self.generate_fallback_audio(speech_text, language)
+            
+            if audio_data and len(audio_data) > 1000:
                 # Create unique filename with timestamp
                 timestamp = int(time.time())
                 audio_filename = f"analysis_{timestamp}_{uuid.uuid4().hex[:8]}.wav"
@@ -158,6 +187,55 @@ class VoiceAgent:
             traceback.print_exc()
             return self.generate_fallback_audio(speech_text if 'speech_text' in locals() else "Audio generation failed", language)
     
+    def _validate_text_for_tts(self, text, max_length=800):  # Increased from 600
+        """Validate and clean text before sending to TTS"""
+        try:
+            # Remove problematic characters but keep more punctuation
+            text = re.sub(r'[^\w\s\.,!?;:\-\(\)\u0900-\u097F\u0B80-\u0BFF\u0C00-\u0C7F\u0C80-\u0CFF\u0D00-\u0D7F\u0A80-\u0AFF\u0900-\u097F\u0980-\u09FF\u0A00-\u0A7F]', '', text)
+            
+            # Ensure reasonable length
+            if len(text) > max_length:
+                text = text[:max_length]
+                last_period = text.rfind('.')
+                if last_period > max_length // 2:
+                    text = text[:last_period + 1]
+            
+            # Ensure it's not too short
+            if len(text.strip()) < 10:
+                return self._get_minimal_speech('en-IN')
+            
+            return text.strip()
+            
+        except Exception as e:
+            print(f"❌ Error validating text for TTS: {e}")
+            return self._get_minimal_speech('en-IN')
+    
+    def _get_minimal_speech(self, language):
+        """Get minimal speech text that should always work"""
+        minimal_messages = {
+            'en-IN': "Your health report has been analyzed.",
+            'hi-IN': "आपकी स्वास्थ्य रिपोर्ट का विश्लेषण हो गया है।",
+            'ta-IN': "உங்கள் சுகாதார அறிக்கை பகுப்பாய்வு செய்யப்பட்டது।"
+        }
+        return minimal_messages.get(language, minimal_messages['en-IN'])
+
+    def _get_conclusion_message(self, language):
+        """Get conclusion message in the specified language - RESTORED FROM OLD CODE"""
+        conclusions = {
+            'en-IN': "Based on this report, there is no reason to worry, but always consult your doctor before taking any decisions.",
+            'hi-IN': "इस रिपोर्ट के आधार पर, चिंता की कोई बात नहीं है, लेकिन कोई भी निर्णय लेने से पहले हमेशा अपने डॉक्टर से सलाह लें।",
+            'ta-IN': "இந்த அறிக்கையின் அடிப்படையில், கவலைப்பட எந்த காரணமும் இல்லை, ஆனால் எந்த முடிவும் எடுப்பதற்கு முன் எப்போதும் உங்கள் மருத்துவரை அணுகவும்।",
+            'te-IN': "ఈ రిపోర్ట్ ఆధారంగా, ఆందోళనకు ఎటువంటి కారణం లేదు, కానీ ఏదైనా నిర్ణయం తీసుకునే ముందు ఎల్లప్పుడూ మీ వైద్యుడిని సంప్రదించండి।",
+            'kn-IN': "ಈ ವರದಿಯ ಆಧಾರದ ಮೇಲೆ, ಚಿಂತಿಸಲು ಯಾವುದೇ ಕಾರಣವಿಲ್ಲ, ಆದರೆ ಯಾವುದೇ ನಿರ್ಧಾರ ತೆಗೆದುಕೊಳ್ಳುವ ಮೊದಲು ಯಾವಾಗಲೂ ನಿಮ್ಮ ವೈದ್ಯರನ್ನು ಸಂಪರ್ಕಿಸಿ।",
+            'ml-IN': "ഈ റിപ്പോർട്ടിന്റെ അടിസ്ഥാനത്തിൽ, ആശങ്കപ്പെടാൻ യാതൊരു കാരണവുമില്ല, എന്നാൽ ഏതെങ്കിലും തീരുമാനം എടുക്കുന്നതിന് മുമ്പ് എപ്പോഴും നിങ്ങളുടെ ഡോക്ടറെ സമീപിക്കുക।",
+            'gu-IN': "આ રિપોર્ટના આધારે, ચિંતા કરવાનું કોઈ કારણ નથી, પરંતુ કોઈપણ નિર્ણય લેતા પહેલા હંમેશા તમારા ડૉક્ટરની સલાહ લો।",
+            'mr-IN': "या अहवालाच्या आधारे, काळजी करण्याचे कोणतेही कारण नाही, परंतु कोणताही निर्णय घेण्यापूर्वी नेहमी आपल्या डॉक्टरांचा सल्ला घ्या।",
+            'bn-IN': "এই রিপোর্টের ভিত্তিতে, চিন্তার কোনো কারণ নেই, তবে কোনো সিদ্ধান্ত নেওয়ার আগে সর্বদা আপনার ডাক্তারের সাথে পরামর্শ করুন।",
+            'or-IN': "ଏହି ରିପୋର୍ଟ ଆଧାରରେ, ଚିନ୍ତାର କୌଣସି କାରଣ ନାହିଁ, କିନ୍ତୁ କୌଣସି ନିଷ୍ପତ୍ତି ନେବା ପୂର୍ବରୁ ସର୍ବଦା ଆପଣଙ୍କ ଡାକ୍ତରଙ୍କ ସହିତ ପରାମର୍ଶ କରନ୍ତୁ।",
+            'pa-IN': "ਇਸ ਰਿਪੋਰਟ ਦੇ ਆਧਾਰ 'ਤੇ, ਚਿੰਤਾ ਕਰਨ ਦੀ ਕੋਈ ਗੱਲ ਨਹੀਂ ਹੈ, ਪਰ ਕੋਈ ਵੀ ਫੈਸਲਾ ਲੈਣ ਤੋਂ ਪਹਿਲਾਂ ਹਮੇਸ਼ਾ ਆਪਣੇ ਡਾਕਟਰ ਨਾਲ ਸਲਾਹ ਕਰੋ।"
+        }
+        return conclusions.get(language, conclusions['en-IN'])
+
     # NEW METHOD: Translate analysis data for UI display
     def translate_analysis_for_display(self, analysis_data, target_language):
         """Translate analysis data for UI display"""
@@ -298,13 +376,13 @@ class VoiceAgent:
             if language == 'en-IN':
                 print(f"🔍 Target language is English, using summary directly")
                 speech_content = self._make_concise_for_tts(english_summary, language)
-                return self._finalize_speech_text(speech_content)
+                return self._finalize_speech_text(speech_content, language)  # FIXED: Added language parameter
             
             # STEP 3: For other languages, ALWAYS translate using Sarvam-Translate
             print(f"🔍 Translating English summary to {language} using Sarvam-Translate")
             translated_text = self._translate_with_sarvam(english_summary, language)
             speech_content = self._make_concise_for_tts(translated_text, language)
-            return self._finalize_speech_text(speech_content)
+            return self._finalize_speech_text(speech_content, language)  # FIXED: Added language parameter
             
         except Exception as e:
             print(f"❌ Error formatting speech text: {e}")
@@ -362,8 +440,8 @@ class VoiceAgent:
                 print(f"🔍 Target is English, returning original text")
                 return english_text
             
-            # Handle long text by chunking
-            if len(english_text) > 800:
+            # Handle long text by chunking - IMPROVED CHUNKING
+            if len(english_text) > 800:  # Increased from 700
                 return self._translate_long_text(english_text, target_language)
             
             # Test Sarvam connection first
@@ -408,34 +486,59 @@ class VoiceAgent:
             return self._get_fallback_translation(english_text, target_language)
     
     def _translate_long_text(self, text, target_language):
-        """Translate long text by chunking"""
+        """Translate long text by chunking with better sentence preservation - IMPROVED"""
         try:
             print(f"🔍 Translating long text: {len(text)} chars")
             
-            # Split text into sentences
-            sentences = re.split(r'[.!?]+', text)
+            # If text is extremely long, truncate first but more conservatively
+            if len(text) > 2500:  # Increased from 2000
+                text = text[:2500]
+                last_period = text.rfind('.')
+                if last_period > 1200:  # Increased from 1000
+                    text = text[:last_period + 1]
+            
+            # Split text into sentences more carefully
+            sentences = re.split(r'(?<=[.!?])\s+', text)  # Better sentence splitting
             translated_sentences = []
             
             current_chunk = ""
+            chunk_limit = 600  # Increased from 400
+            
             for sentence in sentences:
-                if len(current_chunk + sentence) < 700:
-                    current_chunk += sentence + ". "
+                sentence = sentence.strip()
+                if not sentence:
+                    continue
+                    
+                # Add sentence with proper spacing
+                test_chunk = current_chunk + (" " if current_chunk else "") + sentence + "."
+                
+                if len(test_chunk) < chunk_limit:
+                    current_chunk = test_chunk
                 else:
                     if current_chunk:
                         translated_chunk = self._translate_with_sarvam(current_chunk, target_language)
                         translated_sentences.append(translated_chunk)
-                    current_chunk = sentence + ". "
+                    current_chunk = sentence + "."
             
             # Translate remaining chunk
             if current_chunk:
                 translated_chunk = self._translate_with_sarvam(current_chunk, target_language)
                 translated_sentences.append(translated_chunk)
             
-            return " ".join(translated_sentences)
+            final_text = " ".join(translated_sentences)
+            
+            # Final safety check - more conservative
+            if len(final_text) > 1000:  # Increased from 800
+                final_text = final_text[:1000]
+                last_period = final_text.rfind('.')
+                if last_period > 500:  # Increased from 400
+                    final_text = final_text[:last_period + 1]
+            
+            return final_text
             
         except Exception as e:
             print(f"❌ Error translating long text: {e}")
-            return text
+            return text[:600]  # Increased fallback from 400
     
     def _get_fallback_translation(self, text, target_language):
         """Provide fallback translations for common phrases"""
@@ -460,35 +563,36 @@ class VoiceAgent:
         return lang_dict.get(text, text)
     
     def _make_concise_for_tts(self, text, language):
-        """Make text more concise for TTS - limit to key points"""
+        """Make text more concise for TTS - IMPROVED TO PRESERVE MORE CONTENT"""
         try:
             # Remove very long sentences and keep only essential information
             sentences = re.split(r'[.!?]+', text)
             
-            # Keep first few sentences and most important ones
+            # Keep more sentences for better context - INCREASED LIMITS
             important_sentences = []
-            for sentence in sentences[:10]:  # Limit to first 10 sentences
-                if len(sentence.strip()) > 10:
-                    important_sentences.append(sentence.strip())
+            for sentence in sentences[:8]:  # Increased from 6
+                sentence = sentence.strip()
+                if len(sentence) > 10 and len(sentence) < 200:  # Increased max length from 150
+                    important_sentences.append(sentence)
             
-            concise_text = '. '.join(important_sentences[:8])  # Max 8 sentences
+            concise_text = '. '.join(important_sentences[:7])  # Increased from 5
             
-            # Ensure it's not too long for TTS
-            if len(concise_text) > 1000:
-                concise_text = concise_text[:1000]
+            # Ensure it's not too long for TTS - INCREASED LIMIT
+            if len(concise_text) > 800:  # Increased from 600
+                concise_text = concise_text[:800]
                 # Find last complete sentence
                 last_period = concise_text.rfind('.')
-                if last_period > 500:
+                if last_period > 400:  # Increased from 300
                     concise_text = concise_text[:last_period + 1]
             
             return concise_text
             
         except Exception as e:
             print(f"❌ Error making text concise: {e}")
-            return text[:800]  # Fallback to first 800 chars
+            return text[:600]  # Increased fallback from 400
     
-    def _finalize_speech_text(self, text):
-        """Finalize speech text with proper formatting"""
+    def _finalize_speech_text(self, text, language='en-IN'):
+        """Finalize speech text with proper formatting and conclusion - RESTORED FROM OLD CODE"""
         try:
             # Clean up the text
             text = re.sub(r'\s+', ' ', text)  # Remove extra whitespace
@@ -497,6 +601,10 @@ class VoiceAgent:
             # Ensure it ends with proper punctuation
             if not text.endswith(('.', '!', '?')):
                 text += '.'
+            
+            # Add conclusion message - THIS WAS MISSING IN THE NEW CODE
+            conclusion = self._get_conclusion_message(language)
+            text = f"{text} {conclusion}"
             
             return text
             
@@ -511,26 +619,43 @@ class VoiceAgent:
             'hi-IN': "मुझे खुशी है कि मैं आपकी मेडिकल रिपोर्ट का सही विश्लेषण नहीं कर सका। कृपया छवि को फिर से अपलोड करें या अपने डॉक्टर से सलाह लें।",
             'ta-IN': "மன்னிக்கவும், உங்கள் மருத்துவ அறிக்கையை சரியாக பகுப்பாய்வு செய்ய முடியவில்லை। படத்தை மீண்டும் பதிவேற்றவும் அல்லது உங்கள் மருத்துவரை அணுகவும்।"
         }
-        return error_messages.get(language, error_messages['en-IN'])
+        error_text = error_messages.get(language, error_messages['en-IN'])
+        
+        # Add conclusion to error message as well
+        conclusion = self._get_conclusion_message(language)
+        return f"{error_text} {conclusion}"
     
     def generate_fallback_audio(self, text, language):
         """Generate fallback audio when main TTS fails"""
         try:
             print(f"🔍 Generating fallback audio for language: {language}")
             
-            # Try with different speaker
+            # Use longer text for fallback - INCREASED FROM 200
+            fallback_text = text[:300] if len(text) > 300 else text
+            
+            # Ensure it ends properly
+            if not fallback_text.endswith(('.', '!', '?')):
+                last_period = fallback_text.rfind('.')
+                if last_period > 100:  # Increased from 50
+                    fallback_text = fallback_text[:last_period + 1]
+                else:
+                    fallback_text += '.'
+            
+            print(f"🔍 Fallback text length: {len(fallback_text)}")
+            
+            # Try with different speakers
             fallback_speakers = ['meera', 'arvind', 'diya']
             
             for speaker in fallback_speakers:
                 try:
                     print(f"🔍 Trying fallback speaker: {speaker}")
                     audio_data = self.sarvam_client.text_to_speech(
-                        text[:500],  # Shorter text
+                        fallback_text,
                         language,
                         speaker=speaker
                     )
                     
-                    if audio_data:
+                    if audio_data and len(audio_data) > 500:  # Ensure minimum audio size
                         # Save fallback audio
                         timestamp = int(time.time())
                         audio_filename = f"fallback_{timestamp}_{uuid.uuid4().hex[:8]}.wav"
@@ -554,6 +679,39 @@ class VoiceAgent:
                 except Exception as speaker_error:
                     print(f"❌ Fallback speaker {speaker} failed: {speaker_error}")
                     continue
+            
+            # If all else fails, try with absolute minimum text
+            try:
+                minimal_text = self._get_minimal_speech(language)
+                audio_data = self.sarvam_client.text_to_speech(
+                    minimal_text,
+                    language,
+                    speaker='meera'
+                )
+                
+                if audio_data:
+                    # Save minimal audio
+                    timestamp = int(time.time())
+                    audio_filename = f"minimal_{timestamp}_{uuid.uuid4().hex[:8]}.wav"
+                    
+                    try:
+                        from flask import current_app
+                        static_audio_dir = os.path.join(current_app.root_path, 'static', 'audio')
+                    except:
+                        project_root = '/Users/nikhilnedungadi/Desktop/NIKHIL/projects/warpspeed/swasthbharat'
+                        static_audio_dir = os.path.join(project_root, 'static', 'audio')
+                    
+                    audio_path = os.path.join(static_audio_dir, audio_filename)
+                    
+                    with open(audio_path, 'wb') as f:
+                        f.write(audio_data)
+                    
+                    if os.path.exists(audio_path) and os.path.getsize(audio_path) > 0:
+                        print(f"✅ Minimal fallback audio generated: {audio_path}")
+                        return audio_path
+                    
+            except Exception as minimal_error:
+                print(f"❌ Minimal fallback failed: {minimal_error}")
             
             print(f"❌ All fallback speakers failed")
             return None
