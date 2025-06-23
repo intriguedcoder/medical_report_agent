@@ -1,4 +1,4 @@
-# 🩺 Medical Report AI Analyzer
+# 🩺Health-Partner: A Medical Report AI Analyzer
 
 **AI-powered, multilingual, patient-friendly medical report analysis and explanation system.**
 
