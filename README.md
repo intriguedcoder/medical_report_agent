@@ -60,14 +60,7 @@
      - An audio file for listening.
      - Clear, actionable health advice.
 
----
 
-## 📦 Integration & Scalability
-
-- **API-First Design:** Seamless integration with web/mobile apps or hospital systems.
-- **Automated Workflows:** Supports patient follow-up and advanced orchestration via Bhindi AI.
-
----
 
 ## 👥 Who Is This For?
 
