@@ -23,7 +23,6 @@
 - **🔊 Voice Summaries:** Generates natural-sounding audio explanations in the user's language using Sarvam TTS.
 - **✅ Actionable Recommendations:** Provides simple, practical health advice and follow-up suggestions.
 - **👨‍⚕️ Patient-Centric:** Tailors explanations for age, context, and language.
-- **🛠️ API-First:** Easily integrates with web/mobile apps or hospital systems.
 - **⚡ Scalable Automation:** Supports advanced workflows and patient follow-up via Bhindi AI orchestration.
 
 ---
